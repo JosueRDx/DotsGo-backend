@@ -8,7 +8,7 @@ dotenv.config();
 
 const allowedOrigins = [
   'http://localhost:5173',
-  // 'https://dotsgo-frontend.onrender.com'
+  'https://dotsgo-frontend.onrender.com'
 ];
 
 // Configuracion de CORS a Express y a Socket.IO
