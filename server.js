@@ -5,9 +5,21 @@ const cors = require("cors");
 const dotenv = require("dotenv");
 dotenv.config();
 
+
+const allowedOrigins = [
+  'http://localhost:5173',
+  // 'https://dotsgo-frontend.onrender.com'
+];
+
+// Configuracion de CORS a Express y a Socket.IO
+const corsOptions = {
+  origin: allowedOrigins
+};
+app.use(cors(corsOptions));
+
 const io = require("socket.io")(http, {
   cors: {
-    origin: "*",
+   origin: allowedOrigins,
     methods: ["GET", "POST"],
   },
   transports: ["websocket"],
@@ -539,7 +551,7 @@ const endGame = async (game, pin) => {
   io.to(pin).emit("game-ended", { results });
 };
 
-const PORT = process.env.PORT || 80;
+const PORT = process.env.PORT || 5000;
 http.listen(PORT, () => {
   console.log(`Servidor corriendo en puerto ${PORT}`);
 });
