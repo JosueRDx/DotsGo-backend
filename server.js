@@ -49,8 +49,10 @@ const generatePin = () => Math.random().toString(36).substring(2, 8).toUpperCase
 // Almacenar los timers de cada partida para poder cancelarlos
 const questionTimers = new Map();
 
-const registerTimeoutAnswer = async (game, playerId) => {
+const registerTimeoutAnswer = async (gameId, playerId) => {
   try {
+    const game = await Game.findById(gameId);
+    if (!game) return;
     const player = game.players.find(p => p.id === playerId);
     if (!player) return;
 
@@ -82,7 +84,7 @@ const registerTimeoutAnswer = async (game, playerId) => {
 const processTimeouts = async (game) => {
   const currentPlayers = game.players.map(p => p.id);
   for (const playerId of currentPlayers) {
-    await registerTimeoutAnswer(game, playerId);
+    await registerTimeoutAnswer(game._id, playerId);
   }
 };
 
@@ -105,8 +107,10 @@ const emitQuestion = async (game, questionIndex) => {
   }
 
   const question = game.questions[questionIndex];
-  game.questionStartTime = Date.now();
-  await game.save();
+  await Game.findByIdAndUpdate(
+    game._id,
+    { $set: { questionStartTime: Date.now() } }
+  );
 
   io.to(game.pin).emit("game-started", {
     question: question,
