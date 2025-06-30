@@ -123,9 +123,12 @@ const emitQuestion = async (game, questionIndex) => {
     const updatedGame = await Game.findById(game._id).populate("questions");
     if (updatedGame && updatedGame.status === "playing") {
       await processTimeouts(updatedGame); // Procesar timeouts
-      updatedGame.currentQuestion += 1;
-      await updatedGame.save();
-      emitQuestion(updatedGame, updatedGame.currentQuestion); // Llamada recursiva
+      const nextGame = await Game.findByIdAndUpdate(
+        updatedGame._id,
+        { $inc: { currentQuestion: 1 }, $set: { questionStartTime: Date.now() } },
+        { new: true }
+      ).populate("questions");
+      emitQuestion(nextGame, nextGame.currentQuestion); // Llamada recursiva
     }
     questionTimers.delete(game.pin);
   }, game.timeLimitPerQuestion);
@@ -253,7 +256,7 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("submit-answer", async ({ pin, answer, responseTime }, callback) => {
+  socket.on("submit-answer", async ({ pin, answer, responseTime, questionId }, callback) => {
     try {
       const game = await Game.findOne({ pin }).populate("questions");
 
@@ -264,7 +267,13 @@ io.on("connection", (socket) => {
         return callback({ success: false, error: "Juego no válido" });
       }
 
-      const currentQuestion = game.questions[game.currentQuestion];
+      // Determinar la pregunta asociada a la respuesta
+      let questionIndex = game.questions.findIndex(q => q._id.toString() === (questionId || "").toString());
+      if (questionIndex === -1) {
+        questionIndex = game.currentQuestion;
+      }
+
+      const currentQuestion = game.questions[questionIndex];
       const player = game.players.find(p => p.id === socket.id);
 
       if (!player) {
@@ -343,21 +352,37 @@ io.on("connection", (socket) => {
         const timeFactor = Math.max(0, (game.timeLimitPerQuestion / 1000 - (responseTime || 0)) / (game.timeLimitPerQuestion / 1000));
         pointsAwarded = Math.max(10, Math.floor(100 * timeFactor)); // Mínimo 10 puntos
 
-        player.score += pointsAwarded;
-        player.correctAnswers += 1;
-
         console.log(`✅ RESPUESTA CORRECTA - Puntos: ${pointsAwarded}`);
       } else {
         console.log(`❌ RESPUESTA INCORRECTA - Puntos: 0`);
       }
 
-      // Guardar respuesta
-      player.answers.push({
-        questionId: currentQuestion._id,
-        givenAnswer: answer,
-        isCorrect,
-        pointsAwarded,
-      });
+      // Guardar respuesta o actualizar la existente (por timeout previo)
+      const existing = player.answers.find(a => a.questionId.toString() === currentQuestion._id.toString());
+      if (existing) {
+        if (!existing.isCorrect && existing.pointsAwarded === 0) {
+          existing.givenAnswer = answer;
+          existing.isCorrect = isCorrect;
+          existing.pointsAwarded = pointsAwarded;
+          if (isCorrect) {
+            player.score += pointsAwarded;
+            player.correctAnswers += 1;
+          }
+        } else {
+          return callback({ success: false, error: "Respuesta ya registrada" });
+        }
+      } else {
+        player.answers.push({
+          questionId: currentQuestion._id,
+          givenAnswer: answer,
+          isCorrect,
+          pointsAwarded,
+        });
+        if (isCorrect) {
+          player.score += pointsAwarded;
+          player.correctAnswers += 1;
+        }
+      }
 
       await game.save();
 
@@ -373,7 +398,7 @@ io.on("connection", (socket) => {
         playerScore: player.score,
       });
       // Si todos han respondidoa pasa a la siguiente 
-      if (haveAllPlayersAnswered(game)) {
+      if (questionIndex === game.currentQuestion && haveAllPlayersAnswered(game)) {
         const timer = questionTimers.get(pin);
         if (timer) {
           clearTimeout(timer);
