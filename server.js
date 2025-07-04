@@ -49,31 +49,71 @@ const generatePin = () => Math.random().toString(36).substring(2, 8).toUpperCase
 // Almacenar los timers de cada partida para poder cancelarlos
 const questionTimers = new Map();
 
+const MIN_TIMEOUT_POINTS = 10;
+
+const isAnswerCorrect = (answer, correctAnswer) => {
+  if (!answer) return false;
+
+  const ansPictogram = String(answer.pictogram || '').toLowerCase().trim();
+  const correctPictogram = String(correctAnswer.pictogram || '').toLowerCase().trim();
+  if (ansPictogram !== correctPictogram) return false;
+
+  const ansNumber = String(answer.number ?? '').trim();
+  const correctNumber = String(correctAnswer.number ?? '').trim();
+  if (ansNumber !== correctNumber) return false;
+
+  const ansColors = Array.isArray(answer.colors)
+    ? answer.colors.map(c => c.toLowerCase()).sort()
+    : [];
+  const correctColors = Array.isArray(correctAnswer.colors)
+    ? correctAnswer.colors.map(c => c.toLowerCase()).sort()
+    : [];
+
+  return JSON.stringify(ansColors) === JSON.stringify(correctColors);
+};
+
 const registerTimeoutAnswer = async (gameId, playerId) => {
   try {
-    const game = await Game.findById(gameId);
+    const game = await Game.findById(gameId).populate("questions");
     if (!game) return;
     const player = game.players.find(p => p.id === playerId);
     if (!player) return;
 
-    const currentQuestionId = game.questions[game.currentQuestion]._id.toString();
-    const hasAnswered = player.answers.some(a => a.questionId.toString() === currentQuestionId);
+    const question = game.questions[game.currentQuestion];
+    const currentQuestionId = question._id.toString();
 
-    if (hasAnswered) return; // Evita duplicar respuestas
+    let existing = player.answers.find(a => a.questionId.toString() === currentQuestionId);
 
-    player.answers.push({
-      questionId: currentQuestionId,
-      givenAnswer: { pictogram: "", colors: [], number: "" },
-      isCorrect: false,
-      pointsAwarded: 0,
-    });
+    if (existing) {
+      if (
+        !existing.isCorrect &&
+        existing.pointsAwarded === 0 &&
+        existing.givenAnswer &&
+        existing.givenAnswer.pictogram
+      ) {
+        if (isAnswerCorrect(existing.givenAnswer, question.correctAnswer)) {
+          existing.isCorrect = true;
+          existing.pointsAwarded = MIN_TIMEOUT_POINTS;
+          player.score += MIN_TIMEOUT_POINTS;
+          player.correctAnswers += 1;
+        }
+      }
+    } else {
+      player.answers.push({
+        questionId: currentQuestionId,
+        givenAnswer: { pictogram: "", colors: [], number: "" },
+        isCorrect: false,
+        pointsAwarded: 0,
+      });
+      existing = player.answers[player.answers.length - 1];
+    }
 
     await game.save();
 
     io.to(game.pin).emit("player-answered", {
       playerId: player.id,
-      isCorrect: false,
-      pointsAwarded: 0,
+      isCorrect: existing.isCorrect,
+      pointsAwarded: existing.pointsAwarded,
       playerScore: player.score,
     });
   } catch (error) {
@@ -102,7 +142,7 @@ const haveAllPlayersAnswered = (game) => {
 // Definir emitQuestion como una función independiente
 const emitQuestion = async (game, questionIndex) => {
   if (questionIndex >= game.questions.length) {
-    endGame(game, game.pin);
+    setTimeout(() => endGame(game, game.pin), 1000);
     return;
   }
 
@@ -294,54 +334,8 @@ io.on("connection", (socket) => {
       let isCorrect = false;
 
       if (!isEmptyAnswer) {
-        isCorrect = true; // Asumir correcto hasta que se demuestre lo contrario
-        const correctAnswer = currentQuestion.correctAnswer;
-
-        // 1. Validar pictograma
-        console.log("Validando pictograma:");
-        console.log(`  Enviado: "${answer.pictogram}"`);
-        console.log(`  Correcto: "${correctAnswer.pictogram}"`);
-
-        if (answer.pictogram !== correctAnswer.pictogram) {
-          console.log("  ❌ Pictograma incorrecto");
-          isCorrect = false;
-        } else {
-          console.log("  ✅ Pictograma correcto");
-        }
-
-        // 2. Validar número
-        console.log("Validando número:");
-        console.log(`  Enviado: "${answer.number}" (tipo: ${typeof answer.number})`);
-        console.log(`  Correcto: "${correctAnswer.number}" (tipo: ${typeof correctAnswer.number})`);
-
-        // Convertir ambos a string para comparar
-        const answerNumber = String(answer.number || "").trim();
-        const correctNumber = String(correctAnswer.number || "").trim();
-
-        if (answerNumber !== correctNumber) {
-          console.log("  ❌ Número incorrecto");
-          isCorrect = false;
-        } else {
-          console.log("  ✅ Número correcto");
-        }
-
-        // 3. Validar colores
-        console.log("Validando colores:");
-        const answerColors = Array.isArray(answer.colors) ? answer.colors.sort() : [];
-        const correctColors = Array.isArray(correctAnswer.colors) ? correctAnswer.colors.sort() : [];
-
-        console.log(`  Enviados: [${answerColors.join(', ')}]`);
-        console.log(`  Correctos: [${correctColors.join(', ')}]`);
-
-        const answerColorsStr = JSON.stringify(answerColors);
-        const correctColorsStr = JSON.stringify(correctColors);
-
-        if (answerColorsStr !== correctColorsStr) {
-          console.log("  ❌ Colores incorrectos");
-          isCorrect = false;
-        } else {
-          console.log("  ✅ Colores correctos");
-        }
+        isCorrect = isAnswerCorrect(answer, currentQuestion.correctAnswer);
+        console.log(`Validación automática -> ${isCorrect ? 'CORRECTA' : 'INCORRECTA'}`);
       } else {
         console.log("❌ Respuesta vacía");
       }
@@ -350,7 +344,7 @@ io.on("connection", (socket) => {
       let pointsAwarded = 0;
       if (isCorrect) {
         const timeFactor = Math.max(0, (game.timeLimitPerQuestion / 1000 - (responseTime || 0)) / (game.timeLimitPerQuestion / 1000));
-        pointsAwarded = Math.max(10, Math.floor(100 * timeFactor)); // Mínimo 10 puntos
+        pointsAwarded = Math.max(MIN_TIMEOUT_POINTS, Math.floor(100 * timeFactor));
 
         console.log(`✅ RESPUESTA CORRECTA - Puntos: ${pointsAwarded}`);
       } else {
