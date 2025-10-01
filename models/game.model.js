@@ -18,6 +18,18 @@ const playerSchema = new mongoose.Schema({
     image: String,
     specialty: String
   },
+  // NUEVO: Orden aleatorio de preguntas para cada jugador
+  questionOrder: [
+    {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Question'
+    }
+  ],
+  // Índice de la pregunta actual para este jugador
+  currentQuestionIndex: {
+    type: Number,
+    default: 0
+  },
   answers: [
     {
       questionId: {
