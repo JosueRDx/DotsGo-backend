@@ -28,6 +28,7 @@ const handleJoinGame = (socket, io) => {
           username,
           score: 0,
           correctAnswers: 0,
+          totalResponseTime: 0,
           answers: [],
           character: character || null,
           questionOrder: shuffledQuestions,
@@ -73,6 +74,7 @@ const handleJoinGame = (socket, io) => {
           username,
           score: 0,
           correctAnswers: 0,
+          totalResponseTime: 0,
           answers: [],
           character: character || null,
           questionOrder: shuffledQuestions,  // Orden único y aleatorio para este jugador
@@ -182,10 +184,15 @@ const handleSubmitAnswer = (socket, io) => {
         console.log("❌ Respuesta vacía");
       }
 
+      const timeLimitSeconds = game.timeLimitPerQuestion / 1000;
+      const normalizedResponseTime = Number.isFinite(responseTime) && responseTime >= 0
+        ? responseTime
+        : timeLimitSeconds;
+
       // Calcular puntos
       let pointsAwarded = 0;
       if (isCorrect) {
-        pointsAwarded = calculatePoints(responseTime, game.timeLimitPerQuestion);
+        pointsAwarded = calculatePoints(normalizedResponseTime, game.timeLimitPerQuestion);
         console.log(`✅ RESPUESTA CORRECTA - Puntos: ${pointsAwarded}`);
       } else {
         console.log(`❌ RESPUESTA INCORRECTA - Puntos: 0`);
@@ -194,14 +201,19 @@ const handleSubmitAnswer = (socket, io) => {
       // Guardar respuesta o actualizar la existente (por timeout previo)
       const existing = player.answers.find(a => a.questionId.toString() === currentQuestion._id.toString());
       if (existing) {
+        const previousResponseTime = Number.isFinite(existing.responseTime)
+          ? existing.responseTime
+          : 0;
         if (!existing.isCorrect && existing.pointsAwarded === 0) {
           existing.givenAnswer = answer;
           existing.isCorrect = isCorrect;
           existing.pointsAwarded = pointsAwarded;
+          existing.responseTime = normalizedResponseTime;
           if (isCorrect) {
             player.score += pointsAwarded;
             player.correctAnswers += 1;
           }
+          player.totalResponseTime = Math.max(0, (player.totalResponseTime || 0) - previousResponseTime + normalizedResponseTime);
         } else {
           return callback({ success: false, error: "Respuesta ya registrada" });
         }
@@ -211,11 +223,13 @@ const handleSubmitAnswer = (socket, io) => {
           givenAnswer: answer,
           isCorrect,
           pointsAwarded,
+          responseTime: normalizedResponseTime,
         });
         if (isCorrect) {
           player.score += pointsAwarded;
           player.correctAnswers += 1;
         }
+        player.totalResponseTime = (player.totalResponseTime || 0) + normalizedResponseTime;
       }
 
       await game.save();

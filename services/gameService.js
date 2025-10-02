@@ -26,6 +26,8 @@ const registerTimeoutAnswer = async (gameId, playerId, io) => {
 
     let existing = player.answers.find(a => a.questionId.toString() === currentQuestionId);
 
+    const timeoutResponseTime = game.timeLimitPerQuestion / 1000;
+
     if (existing) {
       if (
         !existing.isCorrect &&
@@ -36,6 +38,11 @@ const registerTimeoutAnswer = async (gameId, playerId, io) => {
         if (isAnswerCorrect(existing.givenAnswer, question.correctAnswer)) {
           existing.isCorrect = true;
           existing.pointsAwarded = MIN_TIMEOUT_POINTS;
+          const previousResponseTime = Number.isFinite(existing.responseTime)
+            ? existing.responseTime
+            : 0;
+          existing.responseTime = timeoutResponseTime;
+          player.totalResponseTime = Math.max(0, (player.totalResponseTime || 0) - previousResponseTime + timeoutResponseTime);
           player.score += MIN_TIMEOUT_POINTS;
           player.correctAnswers += 1;
         }
@@ -46,7 +53,9 @@ const registerTimeoutAnswer = async (gameId, playerId, io) => {
         givenAnswer: { pictogram: "", colors: [], number: "" },
         isCorrect: false,
         pointsAwarded: 0,
+        responseTime: timeoutResponseTime,
       });
+      player.totalResponseTime = (player.totalResponseTime || 0) + timeoutResponseTime;
       existing = player.answers[player.answers.length - 1];
     }
 
@@ -113,7 +122,8 @@ const endGame = async (game, pin, io) => {
     score: player.score || 0,
     correctAnswers: player.correctAnswers || 0,
     totalQuestions,
-    character: player.character || null
+    character: player.character || null,
+    totalResponseTime: player.totalResponseTime || 0
   }));
 
   console.log("Resultados finales enviados desde el backend:", results);
