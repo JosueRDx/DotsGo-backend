@@ -1,5 +1,5 @@
 const Game = require("../../models/game.model");
-const { isAnswerCorrect, calculatePoints } = require("../../services/validationService");
+const { isAnswerCorrect, calculatePoints, MIN_TIMEOUT_POINTS } = require("../../services/validationService");
 const { haveAllPlayersAnswered, endGame } = require("../../services/gameService");
 const { emitQuestion } = require("../../services/questionService");
 const { getQuestionTimer, clearQuestionTimer } = require("../../utils/timer");
@@ -180,7 +180,7 @@ const saveWithRetry = async (saveFn, maxRetries = 3) => {
  * @param {Object} io - Instancia de Socket.IO
  */
 const handleSubmitAnswer = (socket, io) => {
-  socket.on("submit-answer", async ({ pin, answer, responseTime, questionId }, callback) => {
+  socket.on("submit-answer", async ({ pin, answer, responseTime, questionId, isAutoSubmit }, callback) => {
     // Usar saveWithRetry para manejar concurrencia
     const processAnswer = async () => {
       const game = await Game.findOne({ pin }).populate("questions");
@@ -227,15 +227,21 @@ const handleSubmitAnswer = (socket, io) => {
       }
 
       const timeLimitSeconds = game.timeLimitPerQuestion / 1000;
-      const normalizedResponseTime = Number.isFinite(responseTime) && responseTime >= 0
+      const autoSubmission = Boolean(isAutoSubmit);
+      let normalizedResponseTime = Number.isFinite(responseTime) && responseTime >= 0
         ? responseTime
         : timeLimitSeconds;
+      if (autoSubmission) {
+        normalizedResponseTime = timeLimitSeconds;
+      }
 
       // Calcular puntos
       let pointsAwarded = 0;
       if (isCorrect) {
-        pointsAwarded = calculatePoints(normalizedResponseTime, game.timeLimitPerQuestion);
-        console.log(`✅ RESPUESTA CORRECTA - Puntos: ${pointsAwarded}`);
+        pointsAwarded = autoSubmission
+          ? MIN_TIMEOUT_POINTS
+          : calculatePoints(normalizedResponseTime, game.timeLimitPerQuestion);
+        console.log(`✅ RESPUESTA CORRECTA - Puntos: ${pointsAwarded}${autoSubmission ? " (auto)" : ""}`);
       } else {
         console.log(`❌ RESPUESTA INCORRECTA - Puntos: 0`);
       }
