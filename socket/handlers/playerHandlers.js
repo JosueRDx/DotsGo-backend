@@ -19,6 +19,18 @@ const handleJoinGame = (socket, io) => {
         return callback({ success: false, error: "Juego no encontrado" });
       }
 
+      if (game.status === "finished") {
+        return callback({ success: false, error: "El juego ya ha finalizado" });
+      }
+
+      const totalQuestions = game.questions.length;
+      let joinResponse = {
+        success: true,
+        gameStatus: game.status,
+        totalQuestions
+      };
+
+
       if (game.status === "playing") {
         // Crear orden aleatorio para jugador que se une tarde
         const shuffledQuestions = shuffleArray(game.questions.map(q => q._id));
@@ -43,19 +55,45 @@ const handleJoinGame = (socket, io) => {
         const playerQuestionId = shuffledQuestions[game.currentQuestion];
         const playerQuestion = game.questions.find(q => q._id.toString() === playerQuestionId.toString());
 
-        const timeElapsed = Date.now() - game.questionStartTime;
-        const timeRemaining = Math.max(0, Math.floor((game.timeLimitPerQuestion - timeElapsed) / 1000));
+        const questionStartTime = game.questionStartTime || Date.now();
+        const timeElapsed = Date.now() - questionStartTime;
+        const rawRemaining = Math.floor((game.timeLimitPerQuestion - timeElapsed) / 1000);
+        const timeRemaining = Math.min(
+          Math.floor(game.timeLimitPerQuestion / 1000),
+          Math.max(0, rawRemaining)
+        );
+
+        joinResponse = {
+          ...joinResponse,
+          joinedDuringGame: true,
+          timeRemaining,
+          currentIndex: Math.min(game.currentQuestion + 1, totalQuestions)
+        };
 
         if (playerQuestion) {
           socket.emit("game-started", {
             question: playerQuestion,
             timeLimit: timeRemaining,
             currentIndex: game.currentQuestion + 1,
-            totalQuestions: game.questions.length,
+            totalQuestions: totalQuestions,
           });
 
           console.log(`🔄 Jugador ${username} se unió tarde - Pregunta: ${playerQuestion.title}`);
         }
+        io.to(pin).emit("player-joined", {
+          players: game.players,
+          gameInfo: {
+            pin: game.pin,
+            questionsCount: totalQuestions,
+            maxPlayers: 50,
+            status: game.status,
+            timeLimitPerQuestion: game.timeLimitPerQuestion / 1000
+          }
+        });
+
+        io.to(pin).emit("players-updated", {
+          players: game.players
+        });
       }
 
       if (game.status === "waiting") {
@@ -101,9 +139,13 @@ const handleJoinGame = (socket, io) => {
         });
 
         console.log(`Jugador conectado: ${username} con personaje: ${character?.name || "Sin personaje"} - Juego tiene ${game.questions.length} preguntas`);
+        joinResponse = {
+          ...joinResponse,
+          joinedDuringGame: false
+        };
       }
 
-      callback({ success: true });
+      callback(joinResponse);
     } catch (error) {
       callback({ success: false, error: error.message });
     }

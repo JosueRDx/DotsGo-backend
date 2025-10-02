@@ -56,6 +56,10 @@ const gameSchema = new mongoose.Schema({
     type: String,
     unique: true
   },
+  questionStartTime: {
+    type: Number,
+    default: null
+  },
   status: {
     type: String,
     enum: ['waiting', 'playing', 'finished'],
