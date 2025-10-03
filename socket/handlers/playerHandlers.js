@@ -299,6 +299,23 @@ const handleSubmitAnswer = (socket, io) => {
         pointsAwarded: result.pointsAwarded,
         playerScore: result.player.score,
       });
+      io.to(pin).emit("ranking-updated", {
+        players: result.game.players
+          .map(p => ({
+            id: p.id,
+            username: p.username,
+            score: p.score || 0,
+            correctAnswers: p.correctAnswers || 0,
+            totalResponseTime: p.totalResponseTime || 0,
+            character: p.character
+          }))
+          .sort((a, b) => {
+            if (b.score !== a.score) return b.score - a.score;
+            if (b.correctAnswers !== a.correctAnswers) return b.correctAnswers - a.correctAnswers;
+            return a.totalResponseTime - b.totalResponseTime;
+          })
+      });
+      
 
       // Si todos han respondido su pregunta actual, pasar a la siguiente ronda
       if (haveAllPlayersAnswered(result.game)) {
