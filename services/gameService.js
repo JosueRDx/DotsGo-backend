@@ -117,14 +117,32 @@ const endGame = async (game, pin, io) => {
   const updatedGame = await Game.findById(game._id);
   const totalQuestions = updatedGame.questions.length;
 
-  const results = updatedGame.players.map(player => ({
-    username: player.username,
-    score: player.score || 0,
-    correctAnswers: player.correctAnswers || 0,
-    totalQuestions,
-    character: player.character || null,
-    totalResponseTime: player.totalResponseTime || 0
-  }));
+  const results = updatedGame.players.map(player => {
+    const normalizedScore = Number.isFinite(player.score)
+      ? player.score
+      : Number(player.score) || 0;
+
+    const normalizedCorrect = Number.isFinite(player.correctAnswers)
+      ? player.correctAnswers
+      : Number(player.correctAnswers) || 0;
+
+    const normalizedResponseTime = Number.isFinite(player.totalResponseTime)
+      ? player.totalResponseTime
+      : Number(player.totalResponseTime) || 0;
+
+    const playerQuestionCount = Array.isArray(player.questionOrder) && player.questionOrder.length > 0
+      ? player.questionOrder.length
+      : totalQuestions;
+
+    return {
+      username: player.username,
+      score: normalizedScore,
+      correctAnswers: normalizedCorrect,
+      totalQuestions: playerQuestionCount,
+      character: player.character || null,
+      totalResponseTime: normalizedResponseTime
+    };
+  });
 
   console.log("Resultados finales enviados desde el backend:", results);
   io.to(pin).emit("game-ended", { results });
