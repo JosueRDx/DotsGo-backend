@@ -35,6 +35,44 @@ const handleCreateGame = (socket, io) => {
 };
 
 /**
+ * Permite al host reconectarse a un juego existente después de recargar la página
+ * @param {Socket} socket - Socket del cliente
+ * @param {Object} io - Instancia de Socket.IO
+ */
+const handleRejoinHost = (socket, io) => {
+  socket.on("rejoin-host", async ({ pin }, callback) => {
+    try {
+      const game = await Game.findOne({ pin }).populate("questions");
+
+      if (!game) {
+        return callback({ success: false, error: "Juego no encontrado" });
+      }
+
+      socket.join(pin);
+
+      const players = game.players.map(player => ({
+        id: player.id,
+        username: player.username,
+        character: player.character || null,
+        score: player.score || 0,
+      }));
+
+      callback({
+        success: true,
+        game: {
+          status: game.status,
+          players,
+          timeLimitPerQuestion: game.timeLimitPerQuestion / 1000,
+          questionsCount: game.questions.length,
+        }
+      });
+    } catch (error) {
+      callback({ success: false, error: error.message });
+    }
+  });
+};
+
+/**
  * Maneja el inicio de un juego
  * @param {Socket} socket - Socket del cliente
  * @param {Object} io - Instancia de Socket.IO
@@ -77,5 +115,6 @@ const handleStartGame = (socket, io) => {
 
 module.exports = {
   handleCreateGame,
-  handleStartGame
+  handleStartGame,
+  handleRejoinHost
 };
