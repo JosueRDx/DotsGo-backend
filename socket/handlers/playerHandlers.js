@@ -408,9 +408,59 @@ const handleLeaveGame = (socket, io) => {
   });
 };
 
+/**
+ * Maneja cuando el admin expulsa a un jugador
+ * @param {Socket} socket - Socket del cliente
+ * @param {Object} io - Instancia de Socket.IO
+ */
+const handleKickPlayer = (socket, io) => {
+  socket.on("kick-player", async ({ pin, playerId }, callback) => {
+    try {
+      const game = await Game.findOne({ pin });
+
+      if (!game) {
+        return callback({ success: false, error: "Juego no encontrado" });
+      }
+
+      const playerIndex = game.players.findIndex(p => p.id === playerId);
+      
+      if (playerIndex === -1) {
+        return callback({ success: false, error: "Jugador no encontrado" });
+      }
+
+      const kickedPlayer = game.players[playerIndex];
+      game.players.splice(playerIndex, 1);
+      await game.save();
+
+      // Notificar al jugador expulsado
+      io.to(playerId).emit("kicked-from-game", {
+        message: "Has sido expulsado del juego por el administrador"
+      });
+
+      // Notificar a todos los demás jugadores
+      io.to(pin).emit("player-left", {
+        playerId: playerId,
+        players: game.players,
+      });
+
+      io.to(pin).emit("players-updated", {
+        players: game.players
+      });
+
+      console.log(`Admin expulsó a ${kickedPlayer.username} del juego ${pin}`);
+      
+      callback({ success: true });
+    } catch (error) {
+      console.error("Error en kick-player:", error);
+      callback({ success: false, error: error.message });
+    }
+  });
+};
+
 module.exports = {
   handleJoinGame,
   handleSubmitAnswer,
   handleDisconnect,
-  handleLeaveGame
+  handleLeaveGame,
+  handleKickPlayer
 };

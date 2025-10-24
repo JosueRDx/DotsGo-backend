@@ -3,7 +3,8 @@ const {
   handleJoinGame,
   handleSubmitAnswer,
   handleDisconnect,
-  handleLeaveGame
+  handleLeaveGame,
+  handleKickPlayer
 } = require("./handlers/playerHandlers");
 const {
   handleGetRoomPlayers,
@@ -27,6 +28,7 @@ const setupSocketHandlers = (io) => {
     handleJoinGame(socket, io);
     handleSubmitAnswer(socket, io);
     handleLeaveGame(socket, io);
+    handleKickPlayer(socket, io);
     handleDisconnect(socket, io);
 
     // Handlers de sala
