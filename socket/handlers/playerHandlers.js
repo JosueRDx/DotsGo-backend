@@ -23,6 +23,46 @@ const handleJoinGame = (socket, io) => {
         return callback({ success: false, error: "El juego ya ha finalizado" });
       }
 
+      // NUEVO: Validar que el nombre de usuario sea único en la sala
+      // Normalizar el nombre para comparación (sin espacios extra, sin mayúsculas)
+      const normalizedUsername = username.trim().toLowerCase().replace(/\s+/g, ' ');
+      const existingPlayer = game.players.find(p => {
+        const existingNormalized = p.username.trim().toLowerCase().replace(/\s+/g, ' ');
+        return existingNormalized === normalizedUsername;
+      });
+      
+      if (existingPlayer) {
+        // NUEVO: Notificar al admin sobre intento de nombre duplicado
+        console.log(`⚠️ Intento de nombre duplicado en sala ${pin}: "${username}" (ya existe: "${existingPlayer.username}")`);
+        
+        // Emitir evento al admin sobre el intento fallido
+        socket.to(pin).emit("duplicate-name-attempt", {
+          attemptedName: username,
+          existingName: existingPlayer.username,
+          timestamp: new Date().toISOString()
+        });
+
+        return callback({ 
+          success: false, 
+          error: "Ya existe un jugador con ese nombre en esta sala. Por favor, elige otro nombre." 
+        });
+      }
+
+      // Validar longitud del nombre
+      if (username.trim().length < 2) {
+        return callback({ 
+          success: false, 
+          error: "El nombre debe tener al menos 2 caracteres." 
+        });
+      }
+
+      if (username.trim().length > 20) {
+        return callback({ 
+          success: false, 
+          error: "El nombre no puede tener más de 20 caracteres." 
+        });
+      }
+
       const totalQuestions = game.questions.length;
       let joinResponse = {
         success: true,
@@ -123,6 +163,12 @@ const handleJoinGame = (socket, io) => {
         await game.save();
         socket.join(pin);
 
+        // Debug: Verificar sockets en la sala
+        const socketsInRoom = await io.in(pin).allSockets();
+        console.log(`🔍 Jugador ${username} se unió. Sockets en sala ${pin}:`, Array.from(socketsInRoom));
+        console.log(`📊 Total jugadores en BD: ${game.players.length}`);
+
+        console.log(`📤 Emitiendo player-joined a sala ${pin} con ${game.players.length} jugadores`);
         io.to(pin).emit("player-joined", {
           players: game.players,
           gameInfo: {
@@ -134,6 +180,7 @@ const handleJoinGame = (socket, io) => {
           }
         });
 
+        console.log(`📤 Emitiendo players-updated a sala ${pin} con ${game.players.length} jugadores`);
         io.to(pin).emit("players-updated", {
           players: game.players
         });
@@ -344,7 +391,7 @@ const handleSubmitAnswer = (socket, io) => {
  * @param {Object} io - Instancia de Socket.IO
  */
 const handleDisconnect = (socket, io) => {
-  socket.on("disconnect", async () => {
+  socket.on("disconnect", async (reason) => {
     try {
       const game = await Game.findOne({ "players.id": socket.id });
 
@@ -352,19 +399,22 @@ const handleDisconnect = (socket, io) => {
         const player = game.players.find(p => p.id === socket.id);
         const playerName = player ? player.username : 'Jugador desconocido';
 
+        // Remover jugador de la partida
         game.players = game.players.filter(p => p.id !== socket.id);
         await game.save();
 
+        // Notificar a otros jugadores
         io.to(game.pin).emit("player-left", {
           playerId: socket.id,
           players: game.players,
+          reason: reason === 'client namespace disconnect' ? 'page_reload' : 'disconnect'
         });
 
         io.to(game.pin).emit("players-updated", {
           players: game.players
         });
 
-        console.log(`Jugador ${playerName} se desconectó del juego ${game.pin}`);
+        console.log(`Jugador ${playerName} se desconectó del juego ${game.pin} (razón: ${reason})`);
       }
     } catch (error) {
       console.error("Error en disconnect:", error);
@@ -383,23 +433,34 @@ const handleLeaveGame = (socket, io) => {
       const game = await Game.findOne({ pin });
 
       if (game) {
-        const playerIndex = game.players.findIndex(p => p.id === socket.id);
+        // Buscar por socket.id o por username como fallback
+        let playerIndex = game.players.findIndex(p => p.id === socket.id);
+        
+        // Si no se encuentra por socket.id, buscar por username
+        if (playerIndex === -1 && username) {
+          playerIndex = game.players.findIndex(p => p.username === username);
+        }
+
         if (playerIndex !== -1) {
+          const removedPlayer = game.players[playerIndex];
           game.players.splice(playerIndex, 1);
           await game.save();
 
           socket.leave(pin);
 
           io.to(pin).emit("player-left", {
-            playerId: socket.id,
+            playerId: removedPlayer.id,
             players: game.players,
+            reason: 'voluntary_leave'
           });
 
           io.to(pin).emit("players-updated", {
             players: game.players
           });
 
-          console.log(`Jugador ${username} salió del juego ${pin}`);
+          console.log(`Jugador ${username} salió voluntariamente del juego ${pin}`);
+        } else {
+          console.log(`No se encontró jugador ${username} en el juego ${pin}`);
         }
       }
     } catch (error) {

@@ -1,4 +1,4 @@
-const { handleCreateGame, handleStartGame, handleRejoinHost } = require("./handlers/gameHandlers");
+const { handleCreateGame, handleStartGame, handleRejoinHost, handleKickPlayer } = require("./handlers/gameHandlers");
 const {
   handleJoinGame,
   handleSubmitAnswer,
@@ -22,6 +22,7 @@ const setupSocketHandlers = (io) => {
     handleCreateGame(socket, io);
     handleStartGame(socket, io);
     handleRejoinHost(socket, io);
+    handleKickPlayer(socket, io);
 
     // Handlers de jugadores
     handleJoinGame(socket, io);

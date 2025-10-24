@@ -26,6 +26,11 @@ const handleCreateGame = (socket, io) => {
 
       await game.save();
       socket.join(pin);
+      console.log(`🎮 Admin socket ${socket.id} creó juego y se unió a sala ${pin}`);
+      
+      // Debug: Verificar que el socket esté en la sala
+      const socketsInRoom = await socket.in(pin).allSockets();
+      console.log(`🔍 Sockets en sala ${pin}:`, Array.from(socketsInRoom));
 
       callback({ success: true, pin });
     } catch (error) {
@@ -49,6 +54,7 @@ const handleRejoinHost = (socket, io) => {
       }
 
       socket.join(pin);
+      console.log(`🔄 Admin socket ${socket.id} se reconectó a sala ${pin} con ${game.players.length} jugadores`);
 
       const players = game.players.map(player => ({
         id: player.id,
@@ -113,8 +119,80 @@ const handleStartGame = (socket, io) => {
   });
 };
 
+/**
+ * Maneja la expulsión de un jugador por parte del administrador
+ * @param {Socket} socket - Socket del cliente (admin)
+ * @param {Object} io - Instancia de Socket.IO
+ */
+const handleKickPlayer = (socket, io) => {
+  socket.on("kick-player", async ({ pin, playerId, playerUsername }, callback) => {
+    try {
+      const game = await Game.findOne({ pin });
+
+      if (!game) {
+        return callback({ success: false, error: "Juego no encontrado" });
+      }
+
+      // Buscar el jugador a expulsar
+      const playerIndex = game.players.findIndex(p => p.id === playerId);
+      
+      if (playerIndex === -1) {
+        return callback({ success: false, error: "Jugador no encontrado" });
+      }
+
+      // No permitir expulsar al host (primer jugador)
+      if (playerIndex === 0) {
+        return callback({ success: false, error: "No se puede expulsar al host" });
+      }
+
+      const kickedPlayer = game.players[playerIndex];
+      
+      // Remover jugador de la partida
+      game.players.splice(playerIndex, 1);
+      await game.save();
+
+      // Notificar al jugador expulsado
+      const playerSocket = io.sockets.sockets.get(playerId);
+      if (playerSocket) {
+        playerSocket.emit("player-kicked", {
+          reason: "Expulsado por el administrador",
+          message: "Has sido expulsado de la partida por el administrador."
+        });
+        
+        // Desconectar al jugador de la sala
+        playerSocket.leave(pin);
+      }
+
+      // Notificar a todos los demás jugadores
+      io.to(pin).emit("player-left", {
+        playerId: playerId,
+        players: game.players,
+        reason: 'kicked_by_admin',
+        kickedPlayerName: kickedPlayer.username
+      });
+
+      io.to(pin).emit("players-updated", {
+        players: game.players
+      });
+
+      console.log(`Admin expulsó al jugador ${kickedPlayer.username} del juego ${pin}`);
+      
+      callback({ 
+        success: true, 
+        message: `Jugador ${kickedPlayer.username} expulsado exitosamente`,
+        updatedPlayers: game.players
+      });
+
+    } catch (error) {
+      console.error("Error al expulsar jugador:", error);
+      callback({ success: false, error: error.message });
+    }
+  });
+};
+
 module.exports = {
   handleCreateGame,
   handleStartGame,
-  handleRejoinHost
+  handleRejoinHost,
+  handleKickPlayer
 };

@@ -65,6 +65,9 @@ const emitQuestion = async (game, questionIndex, io, endGameCallback) => {
     if (updatedGame && updatedGame.status === "playing") {
       await processTimeouts(updatedGame, io);
 
+      // NUEVO: Mostrar respuestas correctas antes de continuar
+      await showCorrectAnswers(updatedGame, questionIndex, io);
+
       const refreshedGame = await Game.findById(updatedGame._id);
       io.to(refreshedGame.pin).emit("ranking-updated", {
         players: refreshedGame.players
@@ -82,12 +85,16 @@ const emitQuestion = async (game, questionIndex, io, endGameCallback) => {
             return a.totalResponseTime - b.totalResponseTime;
           })
       });
-      const nextGame = await Game.findByIdAndUpdate(
-        updatedGame._id,
-        { $inc: { currentQuestion: 1 }, $set: { questionStartTime: Date.now() } },
-        { new: true }
-      ).populate("questions");
-      emitQuestion(nextGame, nextGame.currentQuestion, io, endGameCallback);
+
+      // Esperar un poco antes de continuar con la siguiente pregunta
+      setTimeout(async () => {
+        const nextGame = await Game.findByIdAndUpdate(
+          updatedGame._id,
+          { $inc: { currentQuestion: 1 }, $set: { questionStartTime: Date.now() } },
+          { new: true }
+        ).populate("questions");
+        emitQuestion(nextGame, nextGame.currentQuestion, io, endGameCallback);
+      }, 5000); // 5 segundos para mostrar las respuestas correctas
     }
     deleteQuestionTimer(game.pin);
   }, game.timeLimitPerQuestion);
@@ -95,6 +102,46 @@ const emitQuestion = async (game, questionIndex, io, endGameCallback) => {
   setQuestionTimer(game.pin, timer);
 };
 
+/**
+ * Muestra las respuestas correctas a todos los jugadores
+ * @param {Object} game - Documento del juego
+ * @param {number} questionIndex - Índice de la ronda actual
+ * @param {Object} io - Instancia de Socket.IO
+ */
+const showCorrectAnswers = async (game, questionIndex, io) => {
+  console.log(`📋 Mostrando respuestas correctas para la ronda ${questionIndex + 1}`);
+
+  // Crear un mapa de respuestas correctas para cada jugador
+  const playerAnswers = game.players.map(player => {
+    const playerQuestionId = player.questionOrder[questionIndex];
+    const playerQuestion = game.questions.find(q => q._id.toString() === playerQuestionId.toString());
+    
+    if (playerQuestion) {
+      return {
+        playerId: player.id,
+        username: player.username,
+        question: {
+          title: playerQuestion.title,
+          correctAnswer: playerQuestion.correctAnswer
+        },
+        character: player.character
+      };
+    }
+    return null;
+  }).filter(Boolean);
+
+  // Emitir las respuestas correctas a todos los jugadores
+  io.to(game.pin).emit("show-correct-answers", {
+    roundIndex: questionIndex + 1,
+    totalQuestions: game.questions.length,
+    playerAnswers: playerAnswers,
+    displayTime: 5000 // 5 segundos para mostrar las respuestas
+  });
+
+  console.log(`✅ Respuestas correctas enviadas a ${playerAnswers.length} jugadores`);
+};
+
 module.exports = {
-  emitQuestion
+  emitQuestion,
+  showCorrectAnswers
 };

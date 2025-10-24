@@ -144,8 +144,16 @@ const endGame = async (game, pin, io) => {
     };
   });
 
+  // NUEVO: Verificar si alguien respondió correctamente
+  const hasWinner = results.some(player => player.correctAnswers > 0);
+  
   console.log("Resultados finales enviados desde el backend:", results);
-  io.to(pin).emit("game-ended", { results });
+  console.log(`¿Hay ganador?: ${hasWinner}`);
+  
+  io.to(pin).emit("game-ended", { 
+    results, 
+    hasWinner // NUEVO: Indicar si hay ganador
+  });
 };
 
 module.exports = {
