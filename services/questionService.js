@@ -21,8 +21,11 @@ const emitQuestion = async (game, questionIndex, io, endGameCallback) => {
     { $set: { questionStartTime: Date.now() } }
   );
 
-  // Emitir pregunta individual a cada jugador según su orden aleatorio
-  game.players.forEach((player) => {
+  // CORREGIDO: Emitir pregunta solo a jugadores activos (no eliminados)
+  const activePlayers = game.players.filter(p => !p.isEliminated);
+  console.log(`📤 Emitiendo preguntas a ${activePlayers.length} jugadores activos de ${game.players.length} totales`);
+  
+  activePlayers.forEach((player) => {
 
     io.to(game.pin).emit("ranking-updated", {
       players: game.players
@@ -32,13 +35,19 @@ const emitQuestion = async (game, questionIndex, io, endGameCallback) => {
           score: p.score || 0,
           correctAnswers: p.correctAnswers || 0,
           totalResponseTime: p.totalResponseTime || 0,
-          character: p.character
+          character: p.character,
+          // NUEVO: Información específica de modos
+          lives: p.lives,
+          position: p.position,
+          isEliminated: p.isEliminated
         }))
         .sort((a, b) => {
           if (b.score !== a.score) return b.score - a.score;
           if (b.correctAnswers !== a.correctAnswers) return b.correctAnswers - a.correctAnswers;
           return a.totalResponseTime - b.totalResponseTime;
-        })
+        }),
+      gameMode: game.gameMode,
+      modeConfig: game.modeConfig
     });
     // Obtener la pregunta correspondiente al índice actual del jugador
     const playerQuestionId = player.questionOrder[questionIndex];
@@ -77,13 +86,19 @@ const emitQuestion = async (game, questionIndex, io, endGameCallback) => {
             score: p.score || 0,
             correctAnswers: p.correctAnswers || 0,
             totalResponseTime: p.totalResponseTime || 0,
-            character: p.character
+            character: p.character,
+            // NUEVO: Información específica de modos
+            lives: p.lives,
+            position: p.position,
+            isEliminated: p.isEliminated
           }))
           .sort((a, b) => {
             if (b.score !== a.score) return b.score - a.score;
             if (b.correctAnswers !== a.correctAnswers) return b.correctAnswers - a.correctAnswers;
             return a.totalResponseTime - b.totalResponseTime;
-          })
+          }),
+        gameMode: refreshedGame.gameMode,
+        modeConfig: refreshedGame.modeConfig
       });
 
       // Esperar un poco antes de continuar con la siguiente pregunta
@@ -111,8 +126,15 @@ const emitQuestion = async (game, questionIndex, io, endGameCallback) => {
 const showCorrectAnswers = async (game, questionIndex, io) => {
   console.log(`📋 Mostrando respuestas correctas para la ronda ${questionIndex + 1}`);
 
-  // Crear un mapa de respuestas correctas para cada jugador
-  const playerAnswers = game.players.map(player => {
+  // CORREGIDO: Crear un mapa de respuestas correctas solo para jugadores activos
+  const activePlayers = game.players.filter(p => !p.isEliminated);
+  const playerAnswers = activePlayers.map(player => {
+    // Verificar que el jugador tenga un orden de preguntas válido
+    if (!player.questionOrder || questionIndex >= player.questionOrder.length) {
+      console.warn(`⚠️ Jugador ${player.username} no tiene pregunta para el índice ${questionIndex}`);
+      return null;
+    }
+
     const playerQuestionId = player.questionOrder[questionIndex];
     const playerQuestion = game.questions.find(q => q._id.toString() === playerQuestionId.toString());
     
@@ -124,21 +146,31 @@ const showCorrectAnswers = async (game, questionIndex, io) => {
           title: playerQuestion.title,
           correctAnswer: playerQuestion.correctAnswer
         },
-        character: player.character
+        character: player.character || null
       };
+    } else {
+      console.warn(`⚠️ No se encontró la pregunta ${playerQuestionId} para el jugador ${player.username}`);
+      return null;
     }
-    return null;
   }).filter(Boolean);
 
-  // Emitir las respuestas correctas a todos los jugadores
-  io.to(game.pin).emit("show-correct-answers", {
-    roundIndex: questionIndex + 1,
-    totalQuestions: game.questions.length,
-    playerAnswers: playerAnswers,
-    displayTime: 5000 // 5 segundos para mostrar las respuestas
-  });
+  // Solo emitir si hay respuestas para mostrar
+  if (playerAnswers.length > 0) {
+    const eventData = {
+      roundIndex: questionIndex + 1,
+      totalQuestions: game.questions.length,
+      playerAnswers: playerAnswers,
+      displayTime: 5000 // 5 segundos para mostrar las respuestas
+    };
 
-  console.log(`✅ Respuestas correctas enviadas a ${playerAnswers.length} jugadores`);
+    console.log(`📡 Emitiendo show-correct-answers a sala ${game.pin}:`, JSON.stringify(eventData, null, 2));
+    
+    io.to(game.pin).emit("show-correct-answers", eventData);
+
+    console.log(`✅ Respuestas correctas enviadas a ${playerAnswers.length} jugadores`);
+  } else {
+    console.warn(`⚠️ No hay respuestas correctas para mostrar en la ronda ${questionIndex + 1}`);
+  }
 };
 
 module.exports = {

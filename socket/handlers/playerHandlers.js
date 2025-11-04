@@ -3,6 +3,7 @@ const { isAnswerCorrect, calculatePoints, MIN_TIMEOUT_POINTS } = require("../../
 const { haveAllPlayersAnswered, endGame } = require("../../services/gameService");
 const { emitQuestion } = require("../../services/questionService");
 const { getQuestionTimer, clearQuestionTimer } = require("../../utils/timer");
+const { initializePlayer, processPlayerAnswer, checkWinConditions } = require("../../services/gameModeService");
 const shuffleArray = require("../../utils/shuffle");
 
 /**
@@ -75,7 +76,8 @@ const handleJoinGame = (socket, io) => {
         // Crear orden aleatorio para jugador que se une tarde
         const shuffledQuestions = shuffleArray(game.questions.map(q => q._id));
 
-        const playerData = {
+        // NUEVO: Inicializar jugador según el modo de juego
+        const basePlayerData = {
           id: socket.id,
           username,
           score: 0,
@@ -86,6 +88,13 @@ const handleJoinGame = (socket, io) => {
           questionOrder: shuffledQuestions,
           currentQuestionIndex: game.currentQuestion
         };
+
+        const playerData = initializePlayer(basePlayerData, game.gameMode, game.modeConfig);
+        console.log(`🎮 Jugador ${username} se unió tarde al modo ${game.gameMode}:`, {
+          lives: playerData.lives,
+          position: playerData.position,
+          isEliminated: playerData.isEliminated
+        });
 
         game.players.push(playerData);
         await game.save();
@@ -147,7 +156,8 @@ const handleJoinGame = (socket, io) => {
           console.log(`  ${i + 1}. ${q ? q.title : 'Pregunta no encontrada'}`);
         }
 
-        const playerData = {
+        // NUEVO: Inicializar jugador según el modo de juego
+        const basePlayerData = {
           id: socket.id,
           username,
           score: 0,
@@ -158,6 +168,13 @@ const handleJoinGame = (socket, io) => {
           questionOrder: shuffledQuestions,  // Orden único y aleatorio para este jugador
           currentQuestionIndex: 0
         };
+
+        const playerData = initializePlayer(basePlayerData, game.gameMode, game.modeConfig);
+        console.log(`🎮 Jugador ${username} inicializado para modo ${game.gameMode}:`, {
+          lives: playerData.lives,
+          position: playerData.position,
+          isEliminated: playerData.isEliminated
+        });
 
         game.players.push(playerData);
         await game.save();
@@ -332,7 +349,41 @@ const handleSubmitAnswer = (socket, io) => {
       console.log(`Jugador ${player.username} - Correcta: ${isCorrect} - Puntos: ${pointsAwarded} - Total: ${player.score}`);
       console.log("=================================");
 
-      return { game, isCorrect, pointsAwarded, player };
+      // NUEVO: Procesar respuesta según el modo de juego
+      const modeResult = await processPlayerAnswer(game, player, isCorrect, pointsAwarded, io);
+      
+      if (modeResult.playerUpdated) {
+        await game.save();
+      }
+
+      // NUEVO: Manejar eliminación individual en modo aventura
+      if (modeResult.eliminatedPlayers && modeResult.eliminatedPlayers.length > 0) {
+        for (const eliminatedPlayer of modeResult.eliminatedPlayers) {
+          // Notificar al jugador específico que fue eliminado
+          const playerSocket = io.sockets.sockets.get(eliminatedPlayer.id);
+          if (playerSocket) {
+            playerSocket.emit("player-game-over", {
+              reason: "Sin vidas restantes",
+              message: "Has perdido todas tus vidas en el modo Aventura",
+              gameMode: "adventure",
+              finalStats: {
+                score: eliminatedPlayer.score || 0,
+                correctAnswers: eliminatedPlayer.correctAnswers || 0,
+                totalQuestions: eliminatedPlayer.answers?.length || 0,
+                character: eliminatedPlayer.character
+              }
+            });
+          }
+        }
+      }
+
+      return { 
+        game, 
+        isCorrect, 
+        pointsAwarded, 
+        player,
+        modeResult // NUEVO: Incluir resultado del modo de juego
+      };
     };
 
     try {
@@ -346,6 +397,7 @@ const handleSubmitAnswer = (socket, io) => {
         pointsAwarded: result.pointsAwarded,
         playerScore: result.player.score,
       });
+      // NUEVO: Incluir información de modo de juego en ranking
       io.to(pin).emit("ranking-updated", {
         players: result.game.players
           .map(p => ({
@@ -354,29 +406,107 @@ const handleSubmitAnswer = (socket, io) => {
             score: p.score || 0,
             correctAnswers: p.correctAnswers || 0,
             totalResponseTime: p.totalResponseTime || 0,
-            character: p.character
+            character: p.character,
+            // NUEVO: Información específica de modos
+            lives: p.lives,
+            position: p.position,
+            isEliminated: p.isEliminated
           }))
           .sort((a, b) => {
             if (b.score !== a.score) return b.score - a.score;
             if (b.correctAnswers !== a.correctAnswers) return b.correctAnswers - a.correctAnswers;
             return a.totalResponseTime - b.totalResponseTime;
-          })
+          }),
+        gameMode: result.game.gameMode,
+        modeConfig: result.game.modeConfig
       });
+
+      // NUEVO: Verificar si el juego terminó por condiciones del modo
+      if (result.modeResult && result.modeResult.gameEnded) {
+        console.log(`🏁 Juego terminado por modo ${result.game.gameMode}:`, result.modeResult.winner);
+        
+        // Actualizar el juego con el ganador
+        await Game.findByIdAndUpdate(result.game._id, {
+          status: 'finished',
+          winner: result.modeResult.winner
+        });
+
+        // Emitir fin de juego
+        io.to(pin).emit("game-ended", {
+          results: result.game.players.map(p => ({
+            username: p.username,
+            score: p.score || 0,
+            correctAnswers: p.correctAnswers || 0,
+            totalQuestions: p.questionOrder?.length || result.game.questions.length,
+            character: p.character,
+            lives: p.lives,
+            position: p.position,
+            isEliminated: p.isEliminated,
+            totalResponseTime: p.totalResponseTime || 0
+          })),
+          hasWinner: !!result.modeResult.winner,
+          winner: result.modeResult.winner,
+          gameMode: result.game.gameMode,
+          endReason: result.modeResult.reason || 'Condición de victoria cumplida'
+        });
+
+        return; // Salir sin procesar más preguntas
+      }
       
 
-      // Si todos han respondido su pregunta actual, pasar a la siguiente ronda
+      // Si todos han respondido su pregunta actual, forzar el timeout para mostrar respuestas correctas
       if (haveAllPlayersAnswered(result.game)) {
-        clearQuestionTimer(pin);
-
-        // Actualizar y guardar con retry también
-        await saveWithRetry(async () => {
-          const updatedGame = await Game.findOne({ pin }).populate("questions");
-          updatedGame.currentQuestion += 1;
-          await updatedGame.save();
-          return updatedGame;
-        }).then(nextGame => {
-          emitQuestion(nextGame, nextGame.currentQuestion, io, endGame);
-        });
+        console.log("🎯 Todos los jugadores han respondido, forzando timeout para mostrar respuestas correctas");
+        
+        // Obtener el timer actual y ejecutarlo inmediatamente
+        const currentTimer = getQuestionTimer(pin);
+        if (currentTimer) {
+          clearTimeout(currentTimer);
+          clearQuestionTimer(pin);
+          
+          // Ejecutar el proceso de timeout inmediatamente (que incluye showCorrectAnswers)
+          setTimeout(async () => {
+            const updatedGame = await Game.findById(result.game._id).populate("questions");
+            if (updatedGame && updatedGame.status === "playing") {
+              const { processTimeouts } = require("../../services/gameService");
+              const { showCorrectAnswers } = require("../../services/questionService");
+              
+              await processTimeouts(updatedGame, io);
+              
+              // Mostrar respuestas correctas
+              await showCorrectAnswers(updatedGame, updatedGame.currentQuestion, io);
+              
+              // Actualizar ranking
+              const refreshedGame = await Game.findById(updatedGame._id);
+              io.to(refreshedGame.pin).emit("ranking-updated", {
+                players: refreshedGame.players
+                  .map(p => ({
+                    id: p.id,
+                    username: p.username,
+                    score: p.score || 0,
+                    correctAnswers: p.correctAnswers || 0,
+                    totalResponseTime: p.totalResponseTime || 0,
+                    character: p.character
+                  }))
+                  .sort((a, b) => {
+                    if (b.score !== a.score) return b.score - a.score;
+                    if (b.correctAnswers !== a.correctAnswers) return b.correctAnswers - a.correctAnswers;
+                    return a.totalResponseTime - b.totalResponseTime;
+                  })
+              });
+              
+              // Esperar antes de continuar con la siguiente pregunta
+              setTimeout(async () => {
+                const nextGame = await Game.findByIdAndUpdate(
+                  updatedGame._id,
+                  { $inc: { currentQuestion: 1 }, $set: { questionStartTime: Date.now() } },
+                  { new: true }
+                ).populate("questions");
+                emitQuestion(nextGame, nextGame.currentQuestion, io, endGame);
+              }, 5000); // 5 segundos para mostrar las respuestas correctas
+            }
+          }, 1000); // 1 segundo de delay para que se procesen todas las respuestas
+        }
       }
     } catch (error) {
       console.error("Error en submit-answer:", error);

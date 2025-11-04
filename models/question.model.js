@@ -5,7 +5,17 @@ const questionSchema = new mongoose.Schema({
   correctAnswer: {
     pictogram: String,
     colors: [String],
-    number: Number
+    number: Number,
+    symbolPosition: {
+      type: String,
+      enum: ['top', 'bottom'],
+      default: 'top'
+    },
+    numberPosition: {
+      type: String,
+      enum: ['top', 'bottom'],
+      default: 'bottom'
+    }
   }
 });
 
@@ -18,7 +28,9 @@ const seedQuestions = async () => {
       correctAnswer: {
         pictogram: "explosivo",
         colors: ["naranja", "naranja"],
-        number: 1
+        number: 1,
+        symbolPosition: "top",
+        numberPosition: "bottom"
       }
     },
     {
@@ -26,7 +38,9 @@ const seedQuestions = async () => {
       correctAnswer: {
         pictogram: "oxidante",
         colors: ["amarillo", "amarillo"],
-        number: 2
+        number: 2,
+        symbolPosition: "top",
+        numberPosition: "bottom"
       }
     },
     {
@@ -34,7 +48,9 @@ const seedQuestions = async () => {
       correctAnswer: {
         pictogram: "fuego",
         colors: ["rojo", "rojo"],
-        number: 2.1
+        number: 2.1,
+        symbolPosition: "top",
+        numberPosition: "bottom"
       }
     },
     {
@@ -42,7 +58,9 @@ const seedQuestions = async () => {
       correctAnswer: {
         pictogram: "botella",
         colors: ["verde", "verde"],
-        number: 2.2
+        number: 2.2,
+        symbolPosition: "top",
+        numberPosition: "bottom"
       }
     },
     {
@@ -50,7 +68,9 @@ const seedQuestions = async () => {
       correctAnswer: {
         pictogram: "calavera",
         colors: ["blanco", "blanco"],
-        number: 2.3
+        number: 2.3,
+        symbolPosition: "top",
+        numberPosition: "bottom"
       }
     },
     {
@@ -58,7 +78,9 @@ const seedQuestions = async () => {
       correctAnswer: {
         pictogram: "fuego",
         colors: ["rojo", "rojo"],
-        number: 3
+        number: 3,
+        symbolPosition: "top",
+        numberPosition: "bottom"
       }
     },
     {
@@ -66,7 +88,9 @@ const seedQuestions = async () => {
       correctAnswer: {
         pictogram: "fuego",
         colors: ["rayas rojas", "rayas rojas"],
-        number: 4.1
+        number: 4.1,
+        symbolPosition: "top",
+        numberPosition: "bottom"
       }
     },
     {
@@ -75,7 +99,9 @@ const seedQuestions = async () => {
         pictogram: "fuego",
         // // // colors: [color arriba, color abajo],
         colors: ["blanco", "rojo"],
-        number: 4.2
+        number: 4.2,
+        symbolPosition: "top",
+        numberPosition: "bottom"
       }
     },
     {
@@ -83,7 +109,9 @@ const seedQuestions = async () => {
       correctAnswer: {
         pictogram: "fuego",
         colors: ["azul", "azul"],
-        number: 4.3
+        number: 4.3,
+        symbolPosition: "bottom",
+        numberPosition: "top"
       }
     },
     {
@@ -91,7 +119,9 @@ const seedQuestions = async () => {
       correctAnswer: {
         pictogram: "oxidante",
         colors: ["amarillo", "amarillo"],
-        number: 5.1
+        number: 5.1,
+        symbolPosition: "top",
+        numberPosition: "bottom"
       }
     },
     {
@@ -99,7 +129,9 @@ const seedQuestions = async () => {
       correctAnswer: {
         pictogram: "fuego",
         colors: ["rojo", "amarillo"],
-        number: 5.2
+        number: 5.2,
+        symbolPosition: "top",
+        numberPosition: "bottom"
       }
     },
     {
@@ -107,7 +139,9 @@ const seedQuestions = async () => {
       correctAnswer: {
         pictogram: "calavera",
         colors: ["blanco", "blanco"],
-        number: 6.1
+        number: 6.1,
+        symbolPosition: "top",
+        numberPosition: "bottom"
       }
     },
     {
@@ -115,7 +149,9 @@ const seedQuestions = async () => {
       correctAnswer: {
         pictogram: "riesgo_biologico",
         colors: ["blanco", "blanco"],
-        number: 6.2
+        number: 6.2,
+        symbolPosition: "top",
+        numberPosition: "bottom"
       }
     },
     {
@@ -123,7 +159,9 @@ const seedQuestions = async () => {
       correctAnswer: {
         pictogram: "radioactivo",
         colors: ["amarillo", "blanco"],
-        number: 7
+        number: 7,
+        symbolPosition: "bottom",
+        numberPosition: "top"
       }
     },
     {
@@ -131,7 +169,9 @@ const seedQuestions = async () => {
       correctAnswer: {
         pictogram: "corrosivo",
         colors: ["blanco", "negro"],
-        number: 8
+        number: 8,
+        symbolPosition: "top",
+        numberPosition: "bottom"
       }
     },
     {
@@ -140,7 +180,9 @@ const seedQuestions = async () => {
         // Error de de pictograma, pide siempre triangulo pero no se puede omitir
         pictogram: "triangulo",
         colors: ["rayas negras", "blanco"],
-        number: 9
+        number: 9,
+        symbolPosition: "top",
+        numberPosition: "bottom"
       }
     },
     {
@@ -149,7 +191,9 @@ const seedQuestions = async () => {
         // Error de de pictograma, pide siempre  pero no se puede omitir
         pictogram: "baterias",
         colors: ["rayas negras", "blanco"],
-        number: 9
+        number: 9,
+        symbolPosition: "top",
+        numberPosition: "bottom"
       }
     }
   ];

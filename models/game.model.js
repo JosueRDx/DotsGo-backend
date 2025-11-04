@@ -7,7 +7,7 @@ const playerSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
-    totalResponseTime: {
+  totalResponseTime: {
     type: Number,
     default: 0
   },
@@ -34,6 +34,23 @@ const playerSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
+  // NUEVO: Propiedades específicas de modos de juego
+  lives: {
+    type: Number,
+    default: 3 // Para modo Aventura
+  },
+  position: {
+    type: Number,
+    default: 0 // Para modo Duelo (posición en la montaña/pista)
+  },
+  isEliminated: {
+    type: Boolean,
+    default: false // Para saber si el jugador fue eliminado
+  },
+  eliminatedAt: {
+    type: Date,
+    default: null // Cuándo fue eliminado
+  },
   answers: [
     {
       questionId: {
@@ -46,7 +63,8 @@ const playerSchema = new mongoose.Schema({
         number: Number
       },
       isCorrect: Boolean,
-      pointsAwarded: Number
+      pointsAwarded: Number,
+      responseTime: Number
     }
   ]
 });
@@ -65,6 +83,32 @@ const gameSchema = new mongoose.Schema({
     enum: ['waiting', 'playing', 'finished'],
     default: 'waiting'
   },
+  // NUEVO: Modo de juego
+  gameMode: {
+    type: String,
+    enum: ['classic', 'adventure', 'duel'],
+    default: 'classic'
+  },
+  // NUEVO: Configuración específica del modo
+  modeConfig: {
+    maxLives: {
+      type: Number,
+      default: 3 // Para modo Aventura
+    },
+    maxPlayers: {
+      type: Number,
+      default: 50 // Para modo Clásico
+    },
+    duelPlayers: {
+      type: Number,
+      default: 2 // Para modo Duelo
+    },
+    winCondition: {
+      type: String,
+      enum: ['all_questions', 'last_standing', 'first_to_finish'],
+      default: 'all_questions'
+    }
+  },
   players: [playerSchema],
   currentQuestion: {
     type: Number,
@@ -79,6 +123,13 @@ const gameSchema = new mongoose.Schema({
   timeLimitPerQuestion: {
     type: Number,
     required: true
+  },
+  // NUEVO: Información del ganador para modos especiales
+  winner: {
+    playerId: String,
+    username: String,
+    winType: String, // 'survival', 'race', 'points'
+    winTime: Date
   }
 });
 

@@ -97,7 +97,9 @@ const handleGetCurrentQuestion = (socket, io) => {
             question: currentQuestion,
             timeLeft: timeRemaining,
             currentIndex: game.currentQuestion + 1,
-            totalQuestions: game.questions.length
+            totalQuestions: game.questions.length,
+            gameMode: game.gameMode,
+            modeConfig: game.modeConfig
           });
         }
       }
@@ -107,13 +109,60 @@ const handleGetCurrentQuestion = (socket, io) => {
         question: null,
         timeLeft: 0,
         currentIndex: 0,
-        totalQuestions: game.questions.length
+        totalQuestions: game.questions.length,
+        gameMode: game.gameMode,
+        modeConfig: game.modeConfig
       });
     } catch (error) {
       callback({
         success: false,
         error: error.message
       });
+    }
+  });
+
+  // NUEVO: Manejo del evento request-current-question (método de respaldo)
+  socket.on("request-current-question", async ({ pin }, callback) => {
+    try {
+      const game = await Game.findOne({ pin }).populate("questions");
+
+      if (!game) {
+        return callback({ success: false, error: "Juego no encontrado" });
+      }
+
+      if (game.status !== "playing") {
+        return callback({ success: false, error: "No hay juego activo" });
+      }
+
+      const player = game.players.find(p => p.id === socket.id);
+      if (!player) {
+        return callback({ success: false, error: "Jugador no encontrado" });
+      }
+
+      // Obtener la pregunta específica del jugador
+      const playerQuestionId = player.questionOrder[game.currentQuestion];
+      const playerQuestion = game.questions.find(q => q._id.toString() === playerQuestionId.toString());
+
+      if (!playerQuestion) {
+        return callback({ success: false, error: "No hay pregunta activa" });
+      }
+
+      const questionStartTime = game.questionStartTime || Date.now();
+      const timeElapsed = Date.now() - questionStartTime;
+      const timeRemaining = Math.max(0, Math.floor((game.timeLimitPerQuestion - timeElapsed) / 1000));
+
+      callback({
+        success: true,
+        question: playerQuestion,
+        timeLeft: timeRemaining,
+        currentIndex: game.currentQuestion + 1,
+        totalQuestions: game.questions.length,
+        gameMode: game.gameMode,
+        modeConfig: game.modeConfig
+      });
+
+    } catch (error) {
+      callback({ success: false, error: error.message });
     }
   });
 };

@@ -73,29 +73,37 @@ const registerTimeoutAnswer = async (gameId, playerId, io) => {
 };
 
 /**
- * Procesa los timeouts de todos los jugadores en un juego
+ * Procesa los timeouts de todos los jugadores activos en un juego
  * @param {Object} game - Documento del juego
  * @param {Object} io - Instancia de Socket.IO
  */
 const processTimeouts = async (game, io) => {
-  const currentPlayers = game.players.map(p => p.id);
-  for (const playerId of currentPlayers) {
+  // CORREGIDO: Solo procesar jugadores activos (no eliminados)
+  const activePlayers = game.players.filter(p => !p.isEliminated).map(p => p.id);
+  for (const playerId of activePlayers) {
     await registerTimeoutAnswer(game._id, playerId, io);
   }
 };
 
 /**
- * Verifica si todos los jugadores han respondido su pregunta actual (según su orden aleatorio)
+ * Verifica si todos los jugadores activos han respondido su pregunta actual (según su orden aleatorio)
  * @param {Object} game - Documento del juego
- * @returns {boolean} true si todos han respondido
+ * @returns {boolean} true si todos los jugadores activos han respondido
  */
 const haveAllPlayersAnswered = (game) => {
   if (game.currentQuestion < 0 || game.currentQuestion >= game.questions.length) {
     return false;
   }
 
-  // Verificar que cada jugador haya respondido su pregunta específica de la ronda actual
-  return game.players.every(player => {
+  // CORREGIDO: Solo considerar jugadores activos (no eliminados)
+  const activePlayers = game.players.filter(player => !player.isEliminated);
+  
+  if (activePlayers.length === 0) {
+    return true; // Si no hay jugadores activos, consideramos que "todos" han respondido
+  }
+
+  // Verificar que cada jugador activo haya respondido su pregunta específica de la ronda actual
+  return activePlayers.every(player => {
     // Obtener la pregunta que le tocó al jugador en esta ronda
     const playerQuestionId = player.questionOrder[game.currentQuestion];
 
@@ -149,10 +157,14 @@ const endGame = async (game, pin, io) => {
   
   console.log("Resultados finales enviados desde el backend:", results);
   console.log(`¿Hay ganador?: ${hasWinner}`);
+  console.log(`Modo de juego: ${updatedGame.gameMode}`);
   
   io.to(pin).emit("game-ended", { 
     results, 
-    hasWinner // NUEVO: Indicar si hay ganador
+    hasWinner, // NUEVO: Indicar si hay ganador
+    gameMode: updatedGame.gameMode, // NUEVO: Incluir modo de juego
+    winner: updatedGame.winner, // NUEVO: Incluir información del ganador
+    endReason: 'Juego completado' // NUEVO: Razón de finalización
   });
 };
 
