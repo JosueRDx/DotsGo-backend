@@ -139,12 +139,27 @@ const showCorrectAnswers = async (game, questionIndex, io) => {
     const playerQuestion = game.questions.find(q => q._id.toString() === playerQuestionId.toString());
     
     if (playerQuestion) {
+      // NUEVO: Buscar la respuesta del jugador para esta pregunta
+      const playerAnswer = player.answers.find(a => 
+        a.questionId.toString() === playerQuestionId.toString()
+      );
+
       return {
         playerId: player.id,
         username: player.username,
         question: {
           title: playerQuestion.title,
           correctAnswer: playerQuestion.correctAnswer
+        },
+        // NUEVO: Incluir la respuesta del jugador y si fue correcta
+        playerAnswer: playerAnswer ? {
+          givenAnswer: playerAnswer.givenAnswer,
+          isCorrect: playerAnswer.isCorrect,
+          pointsAwarded: playerAnswer.pointsAwarded
+        } : {
+          givenAnswer: { pictogram: null, colors: [], number: null },
+          isCorrect: false,
+          pointsAwarded: 0
         },
         character: player.character || null
       };

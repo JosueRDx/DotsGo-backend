@@ -24,46 +24,6 @@ const handleJoinGame = (socket, io) => {
         return callback({ success: false, error: "El juego ya ha finalizado" });
       }
 
-      // NUEVO: Validar que el nombre de usuario sea único en la sala
-      // Normalizar el nombre para comparación (sin espacios extra, sin mayúsculas)
-      const normalizedUsername = username.trim().toLowerCase().replace(/\s+/g, ' ');
-      const existingPlayer = game.players.find(p => {
-        const existingNormalized = p.username.trim().toLowerCase().replace(/\s+/g, ' ');
-        return existingNormalized === normalizedUsername;
-      });
-      
-      if (existingPlayer) {
-        // NUEVO: Notificar al admin sobre intento de nombre duplicado
-        console.log(`⚠️ Intento de nombre duplicado en sala ${pin}: "${username}" (ya existe: "${existingPlayer.username}")`);
-        
-        // Emitir evento al admin sobre el intento fallido
-        socket.to(pin).emit("duplicate-name-attempt", {
-          attemptedName: username,
-          existingName: existingPlayer.username,
-          timestamp: new Date().toISOString()
-        });
-
-        return callback({ 
-          success: false, 
-          error: "Ya existe un jugador con ese nombre en esta sala. Por favor, elige otro nombre." 
-        });
-      }
-
-      // Validar longitud del nombre
-      if (username.trim().length < 2) {
-        return callback({ 
-          success: false, 
-          error: "El nombre debe tener al menos 2 caracteres." 
-        });
-      }
-
-      if (username.trim().length > 20) {
-        return callback({ 
-          success: false, 
-          error: "El nombre no puede tener más de 20 caracteres." 
-        });
-      }
-
       const totalQuestions = game.questions.length;
       let joinResponse = {
         success: true,

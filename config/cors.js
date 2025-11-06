@@ -6,7 +6,10 @@ const cors = require("cors");
 const allowedOrigins = [
   'http://localhost:5173',
   'http://localhost:3000',
-  'https://dotsgo-frontend.onrender.com'
+  'https://dotsgo-frontend.onrender.com',
+  'http://192.168.226.1:5173',
+  'http://192.168.25.1:5173',
+  'http://192.168.43.219:5173'
 ];
 
 /**

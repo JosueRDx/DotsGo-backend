@@ -36,8 +36,12 @@ const PORT = process.env.PORT || 5000;
 
 // Conectar a base de datos e iniciar servidor
 connectDatabase().then(() => {
-  server.listen(PORT, () => {
+  server.listen(PORT, '0.0.0.0', () => {
     console.log(`Servidor corriendo en puerto ${PORT}`);
+    console.log(`Local: http://localhost:${PORT}`);
+    console.log(`Network: http://192.168.226.1:${PORT}`);
+    console.log(`Network: http://192.168.25.1:${PORT}`);
+    console.log(`Network: http://192.168.43.219:${PORT}`);
   });
 }).catch((error) => {
   console.error("Error al iniciar el servidor:", error);
