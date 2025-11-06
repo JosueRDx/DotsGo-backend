@@ -462,7 +462,15 @@ const handleSubmitAnswer = (socket, io) => {
                   { $inc: { currentQuestion: 1 }, $set: { questionStartTime: Date.now() } },
                   { new: true }
                 ).populate("questions");
-                emitQuestion(nextGame, nextGame.currentQuestion, io, endGame);
+                
+                // Verificar si aún hay preguntas por hacer
+                if (nextGame.currentQuestion < nextGame.questions.length) {
+                  console.log(`🔄 Continuando con pregunta ${nextGame.currentQuestion + 1} de ${nextGame.questions.length}`);
+                  emitQuestion(nextGame, nextGame.currentQuestion, io, endGame);
+                } else {
+                  console.log(`🏁 Todas las preguntas completadas, terminando juego`);
+                  endGame(nextGame, nextGame.pin, io);
+                }
               }, 5000); // 5 segundos para mostrar las respuestas correctas
             }
           }, 1000); // 1 segundo de delay para que se procesen todas las respuestas

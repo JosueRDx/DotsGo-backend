@@ -25,30 +25,31 @@ const emitQuestion = async (game, questionIndex, io, endGameCallback) => {
   const activePlayers = game.players.filter(p => !p.isEliminated);
   console.log(`📤 Emitiendo preguntas a ${activePlayers.length} jugadores activos de ${game.players.length} totales`);
   
-  activePlayers.forEach((player) => {
+  // Emitir ranking actualizado una sola vez
+  io.to(game.pin).emit("ranking-updated", {
+    players: game.players
+      .map(p => ({
+        id: p.id,
+        username: p.username,
+        score: p.score || 0,
+        correctAnswers: p.correctAnswers || 0,
+        totalResponseTime: p.totalResponseTime || 0,
+        character: p.character,
+        // NUEVO: Información específica de modos
+        lives: p.lives,
+        position: p.position,
+        isEliminated: p.isEliminated
+      }))
+      .sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        if (b.correctAnswers !== a.correctAnswers) return b.correctAnswers - a.correctAnswers;
+        return a.totalResponseTime - b.totalResponseTime;
+      }),
+    gameMode: game.gameMode,
+    modeConfig: game.modeConfig
+  });
 
-    io.to(game.pin).emit("ranking-updated", {
-      players: game.players
-        .map(p => ({
-          id: p.id,
-          username: p.username,
-          score: p.score || 0,
-          correctAnswers: p.correctAnswers || 0,
-          totalResponseTime: p.totalResponseTime || 0,
-          character: p.character,
-          // NUEVO: Información específica de modos
-          lives: p.lives,
-          position: p.position,
-          isEliminated: p.isEliminated
-        }))
-        .sort((a, b) => {
-          if (b.score !== a.score) return b.score - a.score;
-          if (b.correctAnswers !== a.correctAnswers) return b.correctAnswers - a.correctAnswers;
-          return a.totalResponseTime - b.totalResponseTime;
-        }),
-      gameMode: game.gameMode,
-      modeConfig: game.modeConfig
-    });
+  activePlayers.forEach((player) => {
     // Obtener la pregunta correspondiente al índice actual del jugador
     const playerQuestionId = player.questionOrder[questionIndex];
     const playerQuestion = game.questions.find(q => q._id.toString() === playerQuestionId.toString());
@@ -57,14 +58,17 @@ const emitQuestion = async (game, questionIndex, io, endGameCallback) => {
       // Encontrar el socket del jugador y emitirle su pregunta única
       const playerSocket = io.sockets.sockets.get(player.id);
       if (playerSocket) {
-        playerSocket.emit("game-started", {
+        // Usar next-question para preguntas posteriores a la primera
+        const eventName = questionIndex === 0 ? "game-started" : "next-question";
+        
+        playerSocket.emit(eventName, {
           question: playerQuestion,
           timeLimit: game.timeLimitPerQuestion / 1000,
           currentIndex: questionIndex + 1,
           totalQuestions: game.questions.length,
         });
 
-        console.log(`📤 Jugador ${player.username} recibió pregunta: ${playerQuestion.title}`);
+        console.log(`📤 Jugador ${player.username} recibió pregunta (${eventName}): ${playerQuestion.title}`);
       }
     }
   });
@@ -108,7 +112,15 @@ const emitQuestion = async (game, questionIndex, io, endGameCallback) => {
           { $inc: { currentQuestion: 1 }, $set: { questionStartTime: Date.now() } },
           { new: true }
         ).populate("questions");
-        emitQuestion(nextGame, nextGame.currentQuestion, io, endGameCallback);
+        
+        // Verificar si aún hay preguntas por hacer
+        if (nextGame.currentQuestion < nextGame.questions.length) {
+          console.log(`🔄 Continuando con pregunta ${nextGame.currentQuestion + 1} de ${nextGame.questions.length}`);
+          emitQuestion(nextGame, nextGame.currentQuestion, io, endGameCallback);
+        } else {
+          console.log(`🏁 Todas las preguntas completadas, terminando juego`);
+          endGameCallback(nextGame, nextGame.pin, io);
+        }
       }, 5000); // 5 segundos para mostrar las respuestas correctas
     }
     deleteQuestionTimer(game.pin);
