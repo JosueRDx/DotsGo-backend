@@ -52,13 +52,16 @@ const validatePin = (pin) => {
     return { valid: false, error: "El PIN debe ser texto" };
   }
 
-  // Verificar formato (exactamente 6 dígitos)
-  const pinPattern = /^\d{6}$/;
-  if (!pinPattern.test(pin)) {
-    return { valid: false, error: "El PIN debe contener exactamente 6 dígitos" };
+  // Convertir a mayúsculas para normalizar
+  const normalizedPin = pin.toUpperCase().trim();
+
+  // Verificar formato (exactamente 6 caracteres alfanuméricos)
+  const pinPattern = /^[A-Z0-9]{6}$/;
+  if (!pinPattern.test(normalizedPin)) {
+    return { valid: false, error: "El PIN debe contener exactamente 6 caracteres alfanuméricos" };
   }
 
-  return { valid: true, sanitized: pin };
+  return { valid: true, sanitized: normalizedPin };
 };
 
  // Valida el límite de tiempo por pregunta
