@@ -11,8 +11,13 @@ const setupSocketIO = (server) => {
     cors: {
       origin: allowedOrigins,
       methods: ["GET", "POST"],
+      credentials: true
     },
-    transports: ["websocket"],
+    transports: ["websocket", "polling"], // Permitir fallback a polling
+    pingTimeout: 60000, // 60 segundos
+    pingInterval: 25000, // 25 segundos
+    connectTimeout: 45000, // 45 segundos
+    allowEIO3: true
   });
 
   return io;

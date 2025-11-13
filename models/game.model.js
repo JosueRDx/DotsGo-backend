@@ -1,7 +1,8 @@
 const mongoose = require('mongoose');
 
 const playerSchema = new mongoose.Schema({
-  id: String,
+  id: String, // Socket ID actual
+  sessionId: String, // ID único persistente para reconexión
   username: String,
   score: {
     type: Number,
@@ -14,6 +15,19 @@ const playerSchema = new mongoose.Schema({
   correctAnswers: {
     type: Number,
     default: 0
+  },
+  // Estado de conexión
+  isConnected: {
+    type: Boolean,
+    default: true
+  },
+  disconnectedAt: {
+    type: Date,
+    default: null
+  },
+  lastActiveAt: {
+    type: Date,
+    default: Date.now
   },
   // NUEVO: Agregar información del personaje
   character: {

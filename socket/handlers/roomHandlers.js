@@ -19,9 +19,12 @@ const handleGetRoomPlayers = (socket, io) => {
 
       console.log(`get-room-players: PIN ${pin} tiene ${game.questions.length} preguntas`);
 
+      // Filtrar solo jugadores conectados
+      const connectedPlayers = game.players.filter(p => p.isConnected !== false);
+      
       callback({
         success: true,
-        players: game.players,
+        players: connectedPlayers,
         gameInfo: {
           pin: game.pin,
           questionsCount: game.questions.length,

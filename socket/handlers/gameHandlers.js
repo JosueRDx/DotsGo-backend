@@ -73,13 +73,18 @@ const handleRejoinHost = (socket, io) => {
       }
 
       socket.join(pin);
-      console.log(`🔄 Admin socket ${socket.id} se reconectó a sala ${pin} con ${game.players.length} jugadores`);
+      
+      // Filtrar solo jugadores conectados
+      const connectedPlayers = game.players.filter(p => p.isConnected !== false);
+      console.log(`🔄 Admin socket ${socket.id} se reconectó a sala ${pin} con ${connectedPlayers.length} jugadores conectados (${game.players.length} total)`);
 
-      const players = game.players.map(player => ({
+      const players = connectedPlayers.map(player => ({
         id: player.id,
+        sessionId: player.sessionId,
         username: player.username,
         character: player.character || null,
         score: player.score || 0,
+        isConnected: player.isConnected
       }));
 
       callback({

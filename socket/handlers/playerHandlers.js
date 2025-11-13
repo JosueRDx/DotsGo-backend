@@ -5,6 +5,17 @@ const { emitQuestion } = require("../../services/questionService");
 const { getQuestionTimer, clearQuestionTimer } = require("../../utils/timer");
 const { initializePlayer, processPlayerAnswer, checkWinConditions } = require("../../services/gameModeService");
 const shuffleArray = require("../../utils/shuffle");
+const { 
+  generateSessionId, 
+  schedulePlayerCleanup, 
+  cancelPlayerCleanup, 
+  isWithinGracePeriod 
+} = require("../../utils/sessionManager");
+const {
+  canJoinGame,
+  registerPlayer,
+  unregisterPlayer
+} = require("../../utils/antiMultiAccount");
 
 /**
  * Maneja la unión de un jugador al juego
@@ -12,7 +23,7 @@ const shuffleArray = require("../../utils/shuffle");
  * @param {Object} io - Instancia de Socket.IO
  */
 const handleJoinGame = (socket, io) => {
-  socket.on("join-game", async ({ pin, username, character }, callback) => {
+  socket.on("join-game", async ({ pin, username, character, sessionId: clientSessionId }, callback) => {
     try {
       const game = await Game.findOne({ pin }).populate("questions");
 
@@ -25,8 +36,122 @@ const handleJoinGame = (socket, io) => {
       }
 
       const totalQuestions = game.questions.length;
+      
+      // NUEVO: Verificar si es una reconexión
+      let existingPlayer = null;
+      if (clientSessionId) {
+        existingPlayer = game.players.find(p => p.sessionId === clientSessionId);
+      }
+
+      // Si el jugador existe y está dentro del período de gracia, reconectar
+      if (existingPlayer && !existingPlayer.isConnected) {
+        if (isWithinGracePeriod(existingPlayer.disconnectedAt)) {
+          console.log(`🔄 Reconectando jugador ${existingPlayer.username} (sesión: ${clientSessionId})`);
+          
+          // Cancelar limpieza programada
+          cancelPlayerCleanup(clientSessionId);
+          
+          // Actualizar socket ID y estado
+          existingPlayer.id = socket.id;
+          existingPlayer.isConnected = true;
+          existingPlayer.disconnectedAt = null;
+          existingPlayer.lastActiveAt = new Date();
+          
+          await game.save();
+          socket.join(pin);
+          
+          // Notificar a todos que el jugador se reconectó
+          io.to(pin).emit("player-reconnected", {
+            playerId: socket.id,
+            sessionId: clientSessionId,
+            username: existingPlayer.username,
+            players: game.players.filter(p => p.isConnected)
+          });
+          
+          io.to(pin).emit("players-updated", {
+            players: game.players.filter(p => p.isConnected)
+          });
+          
+          let joinResponse = {
+            success: true,
+            reconnected: true,
+            sessionId: clientSessionId,
+            gameStatus: game.status,
+            totalQuestions,
+            playerData: {
+              score: existingPlayer.score,
+              correctAnswers: existingPlayer.correctAnswers,
+              lives: existingPlayer.lives,
+              position: existingPlayer.position,
+              isEliminated: existingPlayer.isEliminated,
+              currentQuestionIndex: existingPlayer.currentQuestionIndex
+            }
+          };
+          
+          // Si el juego está en curso, enviar pregunta actual
+          if (game.status === "playing" && game.currentQuestion < game.questions.length) {
+            const playerQuestionId = existingPlayer.questionOrder[game.currentQuestion];
+            const playerQuestion = game.questions.find(q => q._id.toString() === playerQuestionId.toString());
+            
+            if (playerQuestion) {
+              const questionStartTime = game.questionStartTime || Date.now();
+              const timeElapsed = Date.now() - questionStartTime;
+              const timeRemaining = Math.max(0, Math.floor((game.timeLimitPerQuestion - timeElapsed) / 1000));
+              
+              joinResponse.currentQuestion = {
+                question: playerQuestion,
+                timeRemaining,
+                currentIndex: game.currentQuestion + 1
+              };
+              
+              socket.emit("game-started", {
+                question: playerQuestion,
+                timeLimit: timeRemaining,
+                currentIndex: game.currentQuestion + 1,
+                totalQuestions: totalQuestions,
+              });
+            }
+          }
+          
+          return callback(joinResponse);
+        } else {
+          // Período de gracia expirado, eliminar jugador antiguo
+          console.log(`⏰ Período de gracia expirado para ${existingPlayer.username}, creando nuevo jugador`);
+          game.players = game.players.filter(p => p.sessionId !== clientSessionId);
+          await game.save();
+        }
+      }
+      
+      // NUEVO: Verificar anti-multicuentas
+      const multiAccountCheck = canJoinGame(pin, username, socket);
+      if (!multiAccountCheck.allowed) {
+        console.log(`🚫 Intento de multicuenta bloqueado - User: ${username}, Razón: ${multiAccountCheck.code}`);
+        return callback({ 
+          success: false, 
+          error: multiAccountCheck.reason,
+          code: multiAccountCheck.code
+        });
+      }
+      
+      // Verificar si el username ya existe (evitar duplicados)
+      const duplicatePlayer = game.players.find(p => 
+        p.username === username && p.isConnected
+      );
+      
+      if (duplicatePlayer) {
+        return callback({ 
+          success: false, 
+          error: "Ya existe un jugador con ese nombre en la partida" 
+        });
+      }
+      
+      // Generar nuevo sessionId
+      const sessionId = generateSessionId();
+      
       let joinResponse = {
         success: true,
+        reconnected: false,
+        sessionId,
         gameStatus: game.status,
         totalQuestions
       };
@@ -39,6 +164,7 @@ const handleJoinGame = (socket, io) => {
         // NUEVO: Inicializar jugador según el modo de juego
         const basePlayerData = {
           id: socket.id,
+          sessionId, // NUEVO: ID de sesión persistente
           username,
           score: 0,
           correctAnswers: 0,
@@ -46,7 +172,9 @@ const handleJoinGame = (socket, io) => {
           answers: [],
           character: character || null,
           questionOrder: shuffledQuestions,
-          currentQuestionIndex: game.currentQuestion
+          currentQuestionIndex: game.currentQuestion,
+          isConnected: true,
+          lastActiveAt: new Date()
         };
 
         const playerData = initializePlayer(basePlayerData, game.gameMode, game.modeConfig);
@@ -59,6 +187,9 @@ const handleJoinGame = (socket, io) => {
         game.players.push(playerData);
         await game.save();
         socket.join(pin);
+        
+        // NUEVO: Registrar en sistema anti-multicuentas
+        registerPlayer(pin, username, socket);
 
         // Enviar pregunta actual según el orden aleatorio del nuevo jugador
         const playerQuestionId = shuffledQuestions[game.currentQuestion];
@@ -89,8 +220,11 @@ const handleJoinGame = (socket, io) => {
 
           console.log(`🔄 Jugador ${username} se unió tarde - Pregunta: ${playerQuestion.title}`);
         }
+        // Filtrar solo jugadores conectados
+        const connectedPlayers = game.players.filter(p => p.isConnected !== false);
+        
         io.to(pin).emit("player-joined", {
-          players: game.players,
+          players: connectedPlayers,
           gameInfo: {
             pin: game.pin,
             questionsCount: totalQuestions,
@@ -101,7 +235,7 @@ const handleJoinGame = (socket, io) => {
         });
 
         io.to(pin).emit("players-updated", {
-          players: game.players
+          players: connectedPlayers
         });
       }
 
@@ -119,6 +253,7 @@ const handleJoinGame = (socket, io) => {
         // NUEVO: Inicializar jugador según el modo de juego
         const basePlayerData = {
           id: socket.id,
+          sessionId, // NUEVO: ID de sesión persistente
           username,
           score: 0,
           correctAnswers: 0,
@@ -126,7 +261,9 @@ const handleJoinGame = (socket, io) => {
           answers: [],
           character: character || null,
           questionOrder: shuffledQuestions,  // Orden único y aleatorio para este jugador
-          currentQuestionIndex: 0
+          currentQuestionIndex: 0,
+          isConnected: true,
+          lastActiveAt: new Date()
         };
 
         const playerData = initializePlayer(basePlayerData, game.gameMode, game.modeConfig);
@@ -139,15 +276,21 @@ const handleJoinGame = (socket, io) => {
         game.players.push(playerData);
         await game.save();
         socket.join(pin);
+        
+        // NUEVO: Registrar en sistema anti-multicuentas
+        registerPlayer(pin, username, socket);
 
         // Debug: Verificar sockets en la sala
         const socketsInRoom = await io.in(pin).allSockets();
         console.log(`🔍 Jugador ${username} se unió. Sockets en sala ${pin}:`, Array.from(socketsInRoom));
         console.log(`📊 Total jugadores en BD: ${game.players.length}`);
 
-        console.log(`📤 Emitiendo player-joined a sala ${pin} con ${game.players.length} jugadores`);
+        // Filtrar solo jugadores conectados para emisión
+        const connectedPlayers = game.players.filter(p => p.isConnected !== false);
+        
+        console.log(`📤 Emitiendo player-joined a sala ${pin} con ${connectedPlayers.length} jugadores conectados`);
         io.to(pin).emit("player-joined", {
-          players: game.players,
+          players: connectedPlayers,
           gameInfo: {
             pin: game.pin,
             questionsCount: game.questions.length,
@@ -157,9 +300,9 @@ const handleJoinGame = (socket, io) => {
           }
         });
 
-        console.log(`📤 Emitiendo players-updated a sala ${pin} con ${game.players.length} jugadores`);
+        console.log(`📤 Emitiendo players-updated a sala ${pin} con ${connectedPlayers.length} jugadores conectados`);
         io.to(pin).emit("players-updated", {
-          players: game.players
+          players: connectedPlayers
         });
 
         console.log(`Jugador conectado: ${username} con personaje: ${character?.name || "Sin personaje"} - Juego tiene ${game.questions.length} preguntas`);
@@ -495,24 +638,72 @@ const handleDisconnect = (socket, io) => {
 
       if (game) {
         const player = game.players.find(p => p.id === socket.id);
-        const playerName = player ? player.username : 'Jugador desconocido';
+        
+        if (!player) {
+          console.log(`⚠️ Jugador con socket ${socket.id} no encontrado en el juego`);
+          return;
+        }
 
-        // Remover jugador de la partida
-        game.players = game.players.filter(p => p.id !== socket.id);
+        const playerName = player.username;
+        const sessionId = player.sessionId;
+
+        console.log(`🔌 Jugador ${playerName} desconectado (razón: ${reason})`);
+
+        // NUEVO: Desregistrar del sistema anti-multicuentas (desconexión real)
+        unregisterPlayer(game.pin, playerName, socket, true);
+
+        // Marcar como desconectado pero NO eliminar
+        player.isConnected = false;
+        player.disconnectedAt = new Date();
         await game.save();
 
-        // Notificar a otros jugadores
-        io.to(game.pin).emit("player-left", {
+        // Notificar desconexión temporal
+        io.to(game.pin).emit("player-disconnected", {
           playerId: socket.id,
-          players: game.players,
-          reason: reason === 'client namespace disconnect' ? 'page_reload' : 'disconnect'
+          sessionId: sessionId,
+          username: playerName,
+          canReconnect: true,
+          gracePeriodSeconds: 180, // 3 minutos
+          players: game.players.filter(p => p.isConnected) // Solo jugadores conectados
         });
 
-        io.to(game.pin).emit("players-updated", {
-          players: game.players
+        // Programar limpieza después del período de gracia
+        schedulePlayerCleanup(sessionId, game.pin, async () => {
+          try {
+            const updatedGame = await Game.findOne({ pin: game.pin });
+            
+            if (updatedGame) {
+              const stillDisconnected = updatedGame.players.find(
+                p => p.sessionId === sessionId && !p.isConnected
+              );
+              
+              if (stillDisconnected) {
+                console.log(`🗑️ Eliminando jugador ${playerName} por timeout de reconexión`);
+                
+                updatedGame.players = updatedGame.players.filter(
+                  p => p.sessionId !== sessionId
+                );
+                await updatedGame.save();
+
+                // Notificar eliminación definitiva
+                io.to(updatedGame.pin).emit("player-removed", {
+                  sessionId: sessionId,
+                  username: playerName,
+                  reason: 'reconnection_timeout',
+                  players: updatedGame.players.filter(p => p.isConnected)
+                });
+
+                io.to(updatedGame.pin).emit("players-updated", {
+                  players: updatedGame.players.filter(p => p.isConnected)
+                });
+              }
+            }
+          } catch (error) {
+            console.error("Error en limpieza de jugador:", error);
+          }
         });
 
-        console.log(`Jugador ${playerName} se desconectó del juego ${game.pin} (razón: ${reason})`);
+        console.log(`⏳ Jugador ${playerName} tiene 3 minutos para reconectar`);
       }
     } catch (error) {
       console.error("Error en disconnect:", error);
@@ -545,6 +736,10 @@ const handleLeaveGame = (socket, io) => {
           await game.save();
 
           socket.leave(pin);
+          
+          // NUEVO: NO desregistrar inmediatamente en salida voluntaria
+          // Mantener registro por 5 minutos para prevenir multicuentas
+          unregisterPlayer(pin, username, socket, false);
 
           io.to(pin).emit("player-left", {
             playerId: removedPlayer.id,
