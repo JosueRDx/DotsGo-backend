@@ -3,8 +3,22 @@
  * Protege contra spam y ataques de flood
  */
 
+const logger = require("./logger");
+
 // Map para almacenar contadores de eventos por socket
 const eventCounts = new Map();
+
+// Map para rastrear violaciones acumuladas por socket
+const violationCounts = new Map();
+
+// Configuración de umbrales para enforcement
+const ENFORCEMENT_CONFIG = {
+  warningThreshold: 3,        // Advertencias después de 3 violaciones
+  temporaryBlockThreshold: 5, // Bloqueo temporal después de 5 violaciones
+  disconnectThreshold: 10,    // Desconectar después de 10 violaciones
+  blockDurationMs: 30000,     // Duración del bloqueo temporal: 30 segundos
+  violationResetMs: 300000    // Resetear violaciones después de 5 minutos sin incidentes
+};
 
 // Configuración de límites por tipo de evento
 const RATE_LIMITS = {
@@ -30,6 +44,97 @@ const RATE_LIMITS = {
   'default': { maxAttempts: 50, windowMs: 60000 }
 };
 
+
+/**
+ * Obtiene o inicializa el contador de violaciones para un socket
+ */
+const getViolationCount = (socketId) => {
+  if (!violationCounts.has(socketId)) {
+    violationCounts.set(socketId, {
+      count: 0,
+      lastViolation: Date.now(),
+      blockedUntil: null
+    });
+  }
+  return violationCounts.get(socketId);
+};
+
+/**
+ * Incrementa el contador de violaciones y aplica medidas correctivas
+ * @returns {Object} Información sobre el enforcement aplicado
+ */
+const recordViolation = (socketId) => {
+  const violation = getViolationCount(socketId);
+  const now = Date.now();
+  
+  // Resetear violaciones si ha pasado suficiente tiempo sin incidentes
+  if (now - violation.lastViolation > ENFORCEMENT_CONFIG.violationResetMs) {
+    violation.count = 0;
+  }
+  
+  violation.count++;
+  violation.lastViolation = now;
+  
+  const enforcement = {
+    action: 'none',
+    violationCount: violation.count,
+    shouldDisconnect: false,
+    shouldBlock: false,
+    blockDurationSec: 0,
+    message: ''
+  };
+  
+  // Nivel 1: Advertencia (3+ violaciones)
+  if (violation.count >= ENFORCEMENT_CONFIG.warningThreshold && 
+      violation.count < ENFORCEMENT_CONFIG.temporaryBlockThreshold) {
+    enforcement.action = 'warning';
+    enforcement.message = `⚠️ Advertencia: Has excedido los límites ${violation.count} veces. Modera tus acciones para evitar bloqueo temporal.`;
+    logger.warn(`⚠️ Socket ${socketId} recibió advertencia (${violation.count} violaciones)`);
+  }
+  
+  // Nivel 2: Bloqueo temporal (5+ violaciones)
+  else if (violation.count >= ENFORCEMENT_CONFIG.temporaryBlockThreshold && 
+           violation.count < ENFORCEMENT_CONFIG.disconnectThreshold) {
+    enforcement.action = 'block';
+    enforcement.shouldBlock = true;
+    enforcement.blockDurationSec = ENFORCEMENT_CONFIG.blockDurationMs / 1000;
+    violation.blockedUntil = now + ENFORCEMENT_CONFIG.blockDurationMs;
+    enforcement.message = `🚫 Has sido bloqueado temporalmente por ${enforcement.blockDurationSec} segundos debido a múltiples violaciones de límites.`;
+    logger.warn(`🚫 Socket ${socketId} bloqueado temporalmente (${violation.count} violaciones)`);
+  }
+  
+  // Nivel 3: Desconexión (10+ violaciones)
+  else if (violation.count >= ENFORCEMENT_CONFIG.disconnectThreshold) {
+    enforcement.action = 'disconnect';
+    enforcement.shouldDisconnect = true;
+    enforcement.message = `❌ Has sido desconectado por violar repetidamente los límites de uso. Contacta al administrador si crees que esto es un error.`;
+    logger.error(`❌ Socket ${socketId} será desconectado (${violation.count} violaciones)`);
+  }
+  
+  return enforcement;
+};
+
+/**
+ * Verifica si un socket está actualmente bloqueado
+ */
+const isSocketBlocked = (socketId) => {
+  const violation = violationCounts.get(socketId);
+  if (!violation || !violation.blockedUntil) return false;
+  
+  const now = Date.now();
+  if (now < violation.blockedUntil) {
+    const remainingSec = Math.ceil((violation.blockedUntil - now) / 1000);
+    return {
+      blocked: true,
+      remainingSec,
+      message: `🚫 Bloqueado temporalmente. Intenta de nuevo en ${remainingSec} segundos.`
+    };
+  }
+  
+  // El bloqueo ha expirado
+  violation.blockedUntil = null;
+  return { blocked: false };
+};
 
 // Obtiene la configuración de rate limit para un evento
 
@@ -59,6 +164,22 @@ const cleanOldTimestamps = (timestamps, windowMs) => {
  // Verifica si un socket ha excedido el rate limit para un evento
 
 const checkRateLimit = (socketId, eventName) => {
+  // Verificar primero si el socket está bloqueado
+  const blockStatus = isSocketBlocked(socketId);
+  if (blockStatus.blocked) {
+    return {
+      allowed: false,
+      retryAfter: blockStatus.remainingSec,
+      current: 0,
+      max: 0,
+      blocked: true,
+      enforcement: {
+        action: 'blocked',
+        message: blockStatus.message
+      }
+    };
+  }
+  
   const { maxAttempts, windowMs } = getRateLimit(eventName);
   const socketEvents = getSocketEvents(socketId);
   
@@ -73,11 +194,16 @@ const checkRateLimit = (socketId, eventName) => {
     const oldestTimestamp = Math.min(...timestamps);
     const retryAfter = Math.ceil((windowMs - (Date.now() - oldestTimestamp)) / 1000);
     
+    // Registrar violación y aplicar enforcement
+    const enforcement = recordViolation(socketId);
+    
     return {
       allowed: false,
       retryAfter,
       current: timestamps.length,
-      max: maxAttempts
+      max: maxAttempts,
+      blocked: false,
+      enforcement
     };
   }
   
@@ -88,7 +214,8 @@ const checkRateLimit = (socketId, eventName) => {
   return {
     allowed: true,
     current: timestamps.length,
-    max: maxAttempts
+    max: maxAttempts,
+    blocked: false
   };
 };
 
@@ -97,6 +224,7 @@ const checkRateLimit = (socketId, eventName) => {
 
 const clearSocketData = (socketId) => {
   eventCounts.delete(socketId);
+  violationCounts.delete(socketId); // NUEVO: Limpiar también violaciones
 };
 
 
@@ -107,13 +235,47 @@ const rateLimitMiddleware = (socket, eventName) => {
     const result = checkRateLimit(socket.id, eventName);
     
     if (!result.allowed) {
-      console.warn(`⚠️ Rate limit excedido para socket ${socket.id} en evento '${eventName}': ${result.current}/${result.max}`);
+      // Manejar diferentes niveles de enforcement
+      if (result.blocked) {
+        // Socket bloqueado temporalmente
+        logger.warn(`🚫 Socket ${socket.id} bloqueado intentó acceder a '${eventName}'`);
+      } else if (result.enforcement) {
+        // Violación de rate limit con enforcement
+        logger.warn(`⚠️ Rate limit excedido para socket ${socket.id} en evento '${eventName}': ${result.current}/${result.max}`);
+        
+        // Emitir advertencia al cliente si corresponde
+        if (result.enforcement.action === 'warning' || 
+            result.enforcement.action === 'block') {
+          socket.emit('rate-limit-warning', {
+            message: result.enforcement.message,
+            violationCount: result.enforcement.violationCount,
+            action: result.enforcement.action
+          });
+        }
+        
+        // Desconectar si se alcanzó el umbral
+        if (result.enforcement.shouldDisconnect) {
+          socket.emit('rate-limit-disconnect', {
+            message: result.enforcement.message,
+            violationCount: result.enforcement.violationCount
+          });
+          
+          // Desconectar después de 1 segundo para que el mensaje llegue
+          setTimeout(() => {
+            socket.disconnect(true);
+            logger.error(`❌ Socket ${socket.id} desconectado por violaciones repetidas`);
+          }, 1000);
+        }
+      }
       
       const error = {
         success: false,
-        error: `Demasiadas solicitudes. Intenta de nuevo en ${result.retryAfter} segundos.`,
+        error: result.blocked ? 
+          result.enforcement.message : 
+          `Demasiadas solicitudes. Intenta de nuevo en ${result.retryAfter} segundos.`,
         rateLimitExceeded: true,
-        retryAfter: result.retryAfter
+        retryAfter: result.retryAfter,
+        enforcement: result.enforcement
       };
       
       // Si hay callback, enviar error
@@ -192,7 +354,7 @@ const startCleanupInterval = () => {
     });
     
     if (cleanedSockets > 0) {
-      console.log(`Limpieza de rate limiting: ${cleanedSockets} sockets eliminados`);
+      logger.debug(`Limpieza de rate limiting: ${cleanedSockets} sockets eliminados`);
     }
   }, 5 * 60 * 1000); 
 };
@@ -203,5 +365,8 @@ module.exports = {
   rateLimitMiddleware,
   applyRateLimiting,
   startCleanupInterval,
-  RATE_LIMITS
+  RATE_LIMITS,
+  ENFORCEMENT_CONFIG,
+  getViolationCount,
+  isSocketBlocked
 };

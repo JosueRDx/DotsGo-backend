@@ -1,6 +1,7 @@
 const Game = require("../models/game.model");
 const { isAnswerCorrect } = require("./validationService");
 const { MIN_TIMEOUT_POINTS } = require("./validationService");
+const logger = require("../utils/logger");
 
 /**
  * Registra una respuesta por timeout para un jugador específico
@@ -68,7 +69,7 @@ const registerTimeoutAnswer = async (gameId, playerId, io) => {
       playerScore: player.score,
     });
   } catch (error) {
-    console.error("Error al registrar timeout:", error);
+    logger.error("Error al registrar timeout:", error);
   }
 };
 
@@ -155,9 +156,9 @@ const endGame = async (game, pin, io) => {
   // NUEVO: Verificar si alguien respondió correctamente
   const hasWinner = results.some(player => player.correctAnswers > 0);
   
-  console.log("Resultados finales enviados desde el backend:", results);
-  console.log(`¿Hay ganador?: ${hasWinner}`);
-  console.log(`Modo de juego: ${updatedGame.gameMode}`);
+  logger.info("Resultados finales enviados desde el backend:", results);
+  logger.debug(`¿Hay ganador?: ${hasWinner}`);
+  logger.debug(`Modo de juego: ${updatedGame.gameMode}`);
   
   io.to(pin).emit("game-ended", { 
     results, 

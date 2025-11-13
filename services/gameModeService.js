@@ -1,4 +1,5 @@
 const Game = require("../models/game.model");
+const logger = require("../utils/logger");
 
 /**
  * Configuraciones de los diferentes modos de juego
@@ -97,13 +98,13 @@ const processPlayerAnswer = async (game, player, isCorrect, pointsAwarded, io) =
     case 'adventure':
       if (!isCorrect) {
         player.lives -= 1;
-        console.log(`🏔️ ${player.username} perdió una vida (respuesta incorrecta/vacía). Vidas restantes: ${player.lives}`);
+        logger.debug(`🏔️ ${player.username} perdió una vida (respuesta incorrecta/vacía). Vidas restantes: ${player.lives}`);
         
         if (player.lives <= 0) {
           player.isEliminated = true;
           player.eliminatedAt = new Date();
           result.eliminatedPlayers.push(player);
-          console.log(`💀 ${player.username} fue eliminado del modo Aventura`);
+          logger.info(`💀 ${player.username} fue eliminado del modo Aventura`);
           
           // Notificar eliminación a todos los jugadores
           io.to(game.pin).emit("player-eliminated", {
@@ -125,14 +126,14 @@ const processPlayerAnswer = async (game, player, isCorrect, pointsAwarded, io) =
       } else {
         // Respuesta correcta: avanzar posición
         player.position += 1;
-        console.log(`✅ ${player.username} avanzó a posición ${player.position} (respuesta correcta)`);
+        logger.debug(`✅ ${player.username} avanzó a posición ${player.position} (respuesta correcta)`);
       }
       
       // Verificar condiciones de fin de juego
       const activePlayers = game.players.filter(p => !p.isEliminated);
       const totalPlayers = game.players.length;
-      console.log(`🔍 Modo Aventura - Jugadores activos: ${activePlayers.length}/${totalPlayers}`);
-      console.log(`🔍 Jugadores eliminados: ${game.players.filter(p => p.isEliminated).map(p => p.username).join(', ')}`);
+      logger.debug(`🔍 Modo Aventura - Jugadores activos: ${activePlayers.length}/${totalPlayers}`);
+      logger.debug(`🔍 Jugadores eliminados: ${game.players.filter(p => p.isEliminated).map(p => p.username).join(', ')}`);
       
       // CORREGIDO: Solo terminar el juego si había más de 1 jugador inicialmente y ahora queda solo 1
       if (activePlayers.length === 1 && totalPlayers > 1) {
@@ -144,15 +145,15 @@ const processPlayerAnswer = async (game, player, isCorrect, pointsAwarded, io) =
           winTime: new Date()
         };
         result.reason = 'Último superviviente';
-        console.log(`🏆 Modo Aventura: ${activePlayers[0].username} es el último superviviente`);
+        logger.success(`🏆 Modo Aventura: ${activePlayers[0].username} es el último superviviente`);
       } else if (activePlayers.length === 0) {
         result.gameEnded = true;
         result.winner = null;
         result.reason = 'Todos los jugadores fueron eliminados';
-        console.log(`💀 Modo Aventura: Todos los jugadores fueron eliminados`);
+        logger.info(`💀 Modo Aventura: Todos los jugadores fueron eliminados`);
       } else if (activePlayers.length === 1 && totalPlayers === 1) {
         // NUEVO: Si hay solo 1 jugador, el juego continúa normalmente como modo clásico
-        console.log(`🎮 Modo Aventura con 1 jugador: ${activePlayers[0].username} continúa jugando`);
+        logger.debug(`🎮 Modo Aventura con 1 jugador: ${activePlayers[0].username} continúa jugando`);
       }
       result.playerUpdated = true;
       break;
@@ -162,7 +163,7 @@ const processPlayerAnswer = async (game, player, isCorrect, pointsAwarded, io) =
       
       if (isCorrect) {
         player.position += 2; // Avanzar 2 posiciones por respuesta correcta
-        console.log(`⚔️ ${player.username} avanzó a posición ${player.position} (respuesta correcta)`);
+        logger.debug(`⚔️ ${player.username} avanzó a posición ${player.position} (respuesta correcta)`);
         
         // Notificar avance
         io.to(game.pin).emit("duel-position-update", {
@@ -177,7 +178,7 @@ const processPlayerAnswer = async (game, player, isCorrect, pointsAwarded, io) =
         player.isEliminated = true;
         player.eliminatedAt = new Date();
         result.eliminatedPlayers.push(player);
-        console.log(`💀 ${player.username} fue eliminado del duelo (respuesta incorrecta)`);
+        logger.info(`💀 ${player.username} fue eliminado del duelo (respuesta incorrecta)`);
         
         // Notificar eliminación
         io.to(game.pin).emit("duel-position-update", {
@@ -199,7 +200,7 @@ const processPlayerAnswer = async (game, player, isCorrect, pointsAwarded, io) =
             winTime: new Date()
           };
           result.reason = 'Oponente eliminado';
-          console.log(`🏆 ${remainingPlayer.username} ganó el duelo por eliminación del oponente`);
+          logger.success(`🏆 ${remainingPlayer.username} ganó el duelo por eliminación del oponente`);
         }
       }
       
@@ -215,7 +216,7 @@ const processPlayerAnswer = async (game, player, isCorrect, pointsAwarded, io) =
             winTime: new Date()
           };
           result.reason = 'Llegó a la meta';
-          console.log(`🏁 ${winnerByPosition.username} ganó el duelo llegando a la meta (posición ${winnerByPosition.position})`);
+          logger.success(`🏁 ${winnerByPosition.username} ganó el duelo llegando a la meta (posición ${winnerByPosition.position})`);
         }
       }
       
@@ -243,7 +244,7 @@ const processPlayerAnswer = async (game, player, isCorrect, pointsAwarded, io) =
         player.isEliminated = true;
         player.eliminatedAt = new Date();
         result.eliminatedPlayers.push(player);
-        console.log(`💀 ${player.username} fue eliminado del torneo (respuesta incorrecta)`);
+        logger.info(`💀 ${player.username} fue eliminado del torneo (respuesta incorrecta)`);
         
         // En torneo, si un jugador es eliminado, el otro gana el match
         const remainingPlayer = game.players.find(p => !p.isEliminated && p.id !== player.id && game.activePlayers?.includes(p.id));
@@ -256,12 +257,12 @@ const processPlayerAnswer = async (game, player, isCorrect, pointsAwarded, io) =
             winTime: new Date()
           };
           result.reason = 'Oponente eliminado';
-          console.log(`🏆 ${remainingPlayer.username} ganó el match por eliminación del oponente`);
+          logger.success(`🏆 ${remainingPlayer.username} ganó el match por eliminación del oponente`);
         }
       } else {
         // Respuesta correcta: avanzar posición
         player.position += 2;
-        console.log(`⚔️ ${player.username} avanzó a posición ${player.position} (respuesta correcta)`);
+        logger.debug(`⚔️ ${player.username} avanzó a posición ${player.position} (respuesta correcta)`);
         
         // Verificar si llegó a la meta (mismo que duelo)
         const FINISH_LINE = 10;
@@ -274,7 +275,7 @@ const processPlayerAnswer = async (game, player, isCorrect, pointsAwarded, io) =
             winTime: new Date()
           };
           result.reason = 'Llegó a la meta';
-          console.log(`🏁 ${player.username} ganó el match llegando a la meta (posición ${player.position})`);
+          logger.success(`🏁 ${player.username} ganó el match llegando a la meta (posición ${player.position})`);
         }
       }
       

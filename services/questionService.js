@@ -1,6 +1,7 @@
 const Game = require("../models/game.model");
 const { processTimeouts } = require("./gameService");
 const { setQuestionTimer, deleteQuestionTimer } = require("../utils/timer");
+const logger = require("../utils/logger");
 
 /**
  * Emite una pregunta individual a cada jugador según su orden aleatorio
@@ -23,7 +24,7 @@ const emitQuestion = async (game, questionIndex, io, endGameCallback) => {
 
   // CORREGIDO: Emitir pregunta solo a jugadores activos (no eliminados)
   const activePlayers = game.players.filter(p => !p.isEliminated);
-  console.log(`📤 Emitiendo preguntas a ${activePlayers.length} jugadores activos de ${game.players.length} totales`);
+  logger.debug(`📤 Emitiendo preguntas a ${activePlayers.length} jugadores activos de ${game.players.length} totales`);
   
   // Emitir ranking actualizado una sola vez
   io.to(game.pin).emit("ranking-updated", {
@@ -68,7 +69,7 @@ const emitQuestion = async (game, questionIndex, io, endGameCallback) => {
           totalQuestions: game.questions.length,
         });
 
-        console.log(`📤 Jugador ${player.username} recibió pregunta (${eventName}): ${playerQuestion.title}`);
+        logger.debug(`📤 Jugador ${player.username} recibió pregunta (${eventName}): ${playerQuestion.title}`);
       }
     }
   });
@@ -115,10 +116,10 @@ const emitQuestion = async (game, questionIndex, io, endGameCallback) => {
         
         // Verificar si aún hay preguntas por hacer
         if (nextGame.currentQuestion < nextGame.questions.length) {
-          console.log(`🔄 Continuando con pregunta ${nextGame.currentQuestion + 1} de ${nextGame.questions.length}`);
+          logger.debug(`🔄 Continuando con pregunta ${nextGame.currentQuestion + 1} de ${nextGame.questions.length}`);
           emitQuestion(nextGame, nextGame.currentQuestion, io, endGameCallback);
         } else {
-          console.log(`🏁 Todas las preguntas completadas, terminando juego`);
+          logger.end(`🏁 Todas las preguntas completadas, terminando juego`);
           endGameCallback(nextGame, nextGame.pin, io);
         }
       }, 5000); // 5 segundos para mostrar las respuestas correctas
@@ -136,14 +137,14 @@ const emitQuestion = async (game, questionIndex, io, endGameCallback) => {
  * @param {Object} io - Instancia de Socket.IO
  */
 const showCorrectAnswers = async (game, questionIndex, io) => {
-  console.log(`📋 Mostrando respuestas correctas para la ronda ${questionIndex + 1}`);
+  logger.debug(`📋 Mostrando respuestas correctas para la ronda ${questionIndex + 1}`);
 
   // CORREGIDO: Crear un mapa de respuestas correctas solo para jugadores activos
   const activePlayers = game.players.filter(p => !p.isEliminated);
   const playerAnswers = activePlayers.map(player => {
     // Verificar que el jugador tenga un orden de preguntas válido
     if (!player.questionOrder || questionIndex >= player.questionOrder.length) {
-      console.warn(`⚠️ Jugador ${player.username} no tiene pregunta para el índice ${questionIndex}`);
+      logger.warn(`⚠️ Jugador ${player.username} no tiene pregunta para el índice ${questionIndex}`);
       return null;
     }
 
@@ -176,7 +177,7 @@ const showCorrectAnswers = async (game, questionIndex, io) => {
         character: player.character || null
       };
     } else {
-      console.warn(`⚠️ No se encontró la pregunta ${playerQuestionId} para el jugador ${player.username}`);
+      logger.warn(`⚠️ No se encontró la pregunta ${playerQuestionId} para el jugador ${player.username}`);
       return null;
     }
   }).filter(Boolean);
@@ -190,13 +191,13 @@ const showCorrectAnswers = async (game, questionIndex, io) => {
       displayTime: 5000 // 5 segundos para mostrar las respuestas
     };
 
-    console.log(`📡 Emitiendo show-correct-answers a sala ${game.pin}:`, JSON.stringify(eventData, null, 2));
+    logger.debug(`📡 Emitiendo show-correct-answers a sala ${game.pin}:`, JSON.stringify(eventData, null, 2));
     
     io.to(game.pin).emit("show-correct-answers", eventData);
 
-    console.log(`✅ Respuestas correctas enviadas a ${playerAnswers.length} jugadores`);
+    logger.debug(`✅ Respuestas correctas enviadas a ${playerAnswers.length} jugadores`);
   } else {
-    console.warn(`⚠️ No hay respuestas correctas para mostrar en la ronda ${questionIndex + 1}`);
+    logger.warn(`⚠️ No hay respuestas correctas para mostrar en la ronda ${questionIndex + 1}`);
   }
 };
 

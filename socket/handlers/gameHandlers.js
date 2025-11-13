@@ -6,6 +6,7 @@ const { endGame } = require("../../services/gameService");
 const tournamentService = require("../../services/tournamentService");
 const { checkRateLimit } = require("../../utils/rateLimiter");
 const { validateCreateGameData, validatePin } = require("../../utils/validation");
+const logger = require("../../utils/logger");
 
 /**
  * Maneja la creación de un nuevo juego
@@ -27,7 +28,7 @@ const handleCreateGame = (socket, io) => {
     // Validar datos de entrada
     const validation = validateCreateGameData(gameData);
     if (!validation.valid) {
-      console.warn(`⚠️ Validación fallida en create-game:`, validation.errors);
+      logger.warn(`⚠️ Validación fallida en create-game:`, validation.errors);
       return callback({
         success: false,
         error: validation.errors[0], // Enviar el primer error
@@ -53,7 +54,7 @@ const handleCreateGame = (socket, io) => {
         winCondition: defaultModeConfig.winCondition || 'all_questions'
       };
 
-      console.log(`🎮 Creando juego en modo ${gameMode} con configuración:`, finalModeConfig);
+      logger.info(`🎮 Creando juego en modo ${gameMode} con configuración:`, finalModeConfig);
 
       const game = new Game({
         pin,
@@ -69,11 +70,11 @@ const handleCreateGame = (socket, io) => {
 
       await game.save();
       socket.join(pin);
-      console.log(`🎮 Admin socket ${socket.id} creó juego y se unió a sala ${pin}`);
+      logger.info(`🎮 Admin socket ${socket.id} creó juego y se unió a sala ${pin}`);
       
       // Debug: Verificar que el socket esté en la sala
       const socketsInRoom = await socket.in(pin).allSockets();
-      console.log(`🔍 Sockets en sala ${pin}:`, Array.from(socketsInRoom));
+      logger.debug(`🔍 Sockets en sala ${pin}:`, Array.from(socketsInRoom));
 
       callback({ success: true, pin });
     } catch (error) {

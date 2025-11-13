@@ -10,6 +10,7 @@ const {
   handleGetCurrentQuestion
 } = require("./handlers/roomHandlers");
 const { clearSocketData, startCleanupInterval } = require("../utils/rateLimiter");
+const logger = require("../utils/logger");
 
 // Iniciar limpieza periódica de datos de rate limiting
 startCleanupInterval();
@@ -20,7 +21,7 @@ startCleanupInterval();
  */
 const setupSocketHandlers = (io) => {
   io.on("connection", (socket) => {
-    console.log("Socket conectado:", socket.id);
+    logger.debug("Socket conectado:", socket.id);
 
     // Handlers de juego
     handleCreateGame(socket, io);

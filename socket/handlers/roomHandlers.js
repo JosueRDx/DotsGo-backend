@@ -1,5 +1,6 @@
 const Game = require("../../models/game.model");
 const { validatePin } = require("../../utils/validation");
+const logger = require("../../utils/logger");
 
 /**
  * Maneja la solicitud de información de jugadores en una sala
@@ -11,7 +12,7 @@ const handleGetRoomPlayers = (socket, io) => {
     // Validar PIN
     const pinValidation = validatePin(pin);
     if (!pinValidation.valid) {
-      console.warn(`⚠️ Validación fallida en get-room-players:`, pinValidation.error);
+      logger.warn(`⚠️ Validación fallida en get-room-players:`, pinValidation.error);
       return callback({
         success: false,
         error: pinValidation.error
@@ -28,7 +29,7 @@ const handleGetRoomPlayers = (socket, io) => {
         });
       }
 
-      console.log(`get-room-players: PIN ${pin} tiene ${game.questions.length} preguntas`);
+      logger.debug(`get-room-players: PIN ${pin} tiene ${game.questions.length} preguntas`);
 
       callback({
         success: true,
@@ -42,7 +43,7 @@ const handleGetRoomPlayers = (socket, io) => {
         }
       });
     } catch (error) {
-      console.error("Error en get-room-players:", error);
+      logger.error("Error en get-room-players:", error);
       callback({
         success: false,
         error: error.message
@@ -61,7 +62,7 @@ const handleGetCurrentQuestion = (socket, io) => {
     // Validar PIN
     const pinValidation = validatePin(pin);
     if (!pinValidation.valid) {
-      console.warn(`⚠️ Validación fallida en get-current-question:`, pinValidation.error);
+      logger.warn(`⚠️ Validación fallida en get-current-question:`, pinValidation.error);
       return callback({
         success: false,
         error: pinValidation.error
@@ -112,7 +113,7 @@ const handleGetCurrentQuestion = (socket, io) => {
         const timeRemaining = Math.max(0, Math.floor((game.timeLimitPerQuestion - timeElapsed) / 1000));
 
         if (timeRemaining > 0) {
-          console.log(`📥 get-current-question: Jugador ${player.username} recibe pregunta: ${currentQuestion.title}`);
+          logger.debug(`📥 get-current-question: Jugador ${player.username} recibe pregunta: ${currentQuestion.title}`);
           return callback({
             success: true,
             question: currentQuestion,
@@ -147,7 +148,7 @@ const handleGetCurrentQuestion = (socket, io) => {
     // Validar PIN
     const pinValidation = validatePin(pin);
     if (!pinValidation.valid) {
-      console.warn(`⚠️ Validación fallida en request-current-question:`, pinValidation.error);
+      logger.warn(`⚠️ Validación fallida en request-current-question:`, pinValidation.error);
       return callback({
         success: false,
         error: pinValidation.error
