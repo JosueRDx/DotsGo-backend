@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const questionController = require('../controllers/questionController');
+const { validatePin } = require('../utils/validation');
 
 /**
  * GET /api/questions
@@ -25,7 +26,15 @@ router.get('/debug-game/:pin', async (req, res) => {
     const Game = require('../models/game.model');
     const { pin } = req.params;
     
-    const game = await Game.findOne({ pin }).populate('questions');
+    // Validar formato del PIN
+    const pinValidation = validatePin(pin);
+    if (!pinValidation.valid) {
+      return res.status(400).json({ 
+        error: pinValidation.error 
+      });
+    }
+    
+    const game = await Game.findOne({ pin: pinValidation.sanitized }).populate('questions');
     
     if (!game) {
       return res.status(404).json({ error: 'Juego no encontrado' });

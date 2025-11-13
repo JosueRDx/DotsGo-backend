@@ -1,4 +1,5 @@
 const Game = require("../../models/game.model");
+const { validatePin } = require("../../utils/validation");
 
 /**
  * Maneja la solicitud de información de jugadores en una sala
@@ -7,8 +8,18 @@ const Game = require("../../models/game.model");
  */
 const handleGetRoomPlayers = (socket, io) => {
   socket.on("get-room-players", async ({ pin }, callback) => {
+    // Validar PIN
+    const pinValidation = validatePin(pin);
+    if (!pinValidation.valid) {
+      console.warn(`⚠️ Validación fallida en get-room-players:`, pinValidation.error);
+      return callback({
+        success: false,
+        error: pinValidation.error
+      });
+    }
+
     try {
-      const game = await Game.findOne({ pin }).populate("questions");
+      const game = await Game.findOne({ pin: pinValidation.sanitized }).populate("questions");
 
       if (!game) {
         return callback({
@@ -47,8 +58,18 @@ const handleGetRoomPlayers = (socket, io) => {
  */
 const handleGetCurrentQuestion = (socket, io) => {
   socket.on("get-current-question", async ({ pin }, callback) => {
+    // Validar PIN
+    const pinValidation = validatePin(pin);
+    if (!pinValidation.valid) {
+      console.warn(`⚠️ Validación fallida en get-current-question:`, pinValidation.error);
+      return callback({
+        success: false,
+        error: pinValidation.error
+      });
+    }
+
     try {
-      const game = await Game.findOne({ pin }).populate("questions");
+      const game = await Game.findOne({ pin: pinValidation.sanitized }).populate("questions");
 
       if (!game) {
         return callback({
@@ -123,8 +144,18 @@ const handleGetCurrentQuestion = (socket, io) => {
 
   // NUEVO: Manejo del evento request-current-question (método de respaldo)
   socket.on("request-current-question", async ({ pin }, callback) => {
+    // Validar PIN
+    const pinValidation = validatePin(pin);
+    if (!pinValidation.valid) {
+      console.warn(`⚠️ Validación fallida en request-current-question:`, pinValidation.error);
+      return callback({
+        success: false,
+        error: pinValidation.error
+      });
+    }
+
     try {
-      const game = await Game.findOne({ pin }).populate("questions");
+      const game = await Game.findOne({ pin: pinValidation.sanitized }).populate("questions");
 
       if (!game) {
         return callback({ success: false, error: "Juego no encontrado" });

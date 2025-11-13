@@ -6,6 +6,7 @@ const { getQuestionTimer, clearQuestionTimer } = require("../../utils/timer");
 const { initializePlayer, processPlayerAnswer, checkWinConditions } = require("../../services/gameModeService");
 const shuffleArray = require("../../utils/shuffle");
 const { checkRateLimit } = require("../../utils/rateLimiter");
+const { validateJoinGameData, validateSubmitAnswerData } = require("../../utils/validation");
 
 /**
  * Maneja la unión de un jugador al juego
@@ -13,7 +14,7 @@ const { checkRateLimit } = require("../../utils/rateLimiter");
  * @param {Object} io - Instancia de Socket.IO
  */
 const handleJoinGame = (socket, io) => {
-  socket.on("join-game", async ({ pin, username, character }, callback) => {
+  socket.on("join-game", async (joinData, callback) => {
     // Verificar rate limiting
     const rateCheck = checkRateLimit(socket.id, 'join-game');
     if (!rateCheck.allowed) {
@@ -23,6 +24,20 @@ const handleJoinGame = (socket, io) => {
         rateLimitExceeded: true
       });
     }
+
+    // Validar datos de entrada
+    const validation = validateJoinGameData(joinData);
+    if (!validation.valid) {
+      console.warn(`⚠️ Validación fallida en join-game:`, validation.errors);
+      return callback({
+        success: false,
+        error: validation.errors[0], // Enviar el primer error
+        validationErrors: validation.errors // Lista completa de errores
+      });
+    }
+
+    // Usar datos validados y sanitizados
+    const { pin, username, character } = validation.sanitized;
 
     try {
       const game = await Game.findOne({ pin }).populate("questions");
@@ -215,7 +230,7 @@ const saveWithRetry = async (saveFn, maxRetries = 3) => {
  * @param {Object} io - Instancia de Socket.IO
  */
 const handleSubmitAnswer = (socket, io) => {
-  socket.on("submit-answer", async ({ pin, answer, responseTime, questionId, isAutoSubmit }, callback) => {
+  socket.on("submit-answer", async (answerData, callback) => {
     // Verificar rate limiting
     const rateCheck = checkRateLimit(socket.id, 'submit-answer');
     if (!rateCheck.allowed) {
@@ -225,6 +240,26 @@ const handleSubmitAnswer = (socket, io) => {
         rateLimitExceeded: true
       });
     }
+
+    // Validar datos básicos (PIN, answerIndex, responseTime)
+    const validation = validateSubmitAnswerData({
+      pin: answerData.pin,
+      answerIndex: 0, // Solo para validar PIN y tiempo, answerIndex no es relevante aquí
+      responseTime: answerData.responseTime
+    });
+
+    if (!validation.valid) {
+      console.warn(`⚠️ Validación fallida en submit-answer:`, validation.errors);
+      return callback({
+        success: false,
+        error: validation.errors[0],
+        validationErrors: validation.errors
+      });
+    }
+
+    // Extraer datos validados y otros campos adicionales
+    const { pin } = validation.sanitized;
+    const { answer, responseTime, questionId, isAutoSubmit } = answerData;
 
     // Usar saveWithRetry para manejar concurrencia
     const processAnswer = async () => {
@@ -548,6 +583,21 @@ const handleDisconnect = (socket, io) => {
  */
 const handleLeaveGame = (socket, io) => {
   socket.on("leave-game", async ({ pin, username }) => {
+    // Validar PIN (opcional, pero si se proporciona debe ser válido)
+    if (pin) {
+      const pinValidation = validatePin(pin);
+      if (!pinValidation.valid) {
+        console.warn(`⚠️ Validación fallida en leave-game:`, pinValidation.error);
+        return; // No callback, solo log
+      }
+    }
+
+    // Validar username (opcional)
+    if (username && typeof username !== 'string') {
+      console.warn(`⚠️ Validación fallida en leave-game: username debe ser string`);
+      return;
+    }
+
     try {
       const game = await Game.findOne({ pin });
 

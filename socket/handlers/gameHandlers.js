@@ -5,6 +5,7 @@ const { emitQuestion } = require("../../services/questionService");
 const { endGame } = require("../../services/gameService");
 const tournamentService = require("../../services/tournamentService");
 const { checkRateLimit } = require("../../utils/rateLimiter");
+const { validateCreateGameData, validatePin } = require("../../utils/validation");
 
 /**
  * Maneja la creación de un nuevo juego
@@ -23,8 +24,20 @@ const handleCreateGame = (socket, io) => {
       });
     }
 
+    // Validar datos de entrada
+    const validation = validateCreateGameData(gameData);
+    if (!validation.valid) {
+      console.warn(`⚠️ Validación fallida en create-game:`, validation.errors);
+      return callback({
+        success: false,
+        error: validation.errors[0], // Enviar el primer error
+        validationErrors: validation.errors // Lista completa de errores
+      });
+    }
+
     try {
-      const { timeLimit, questionIds, gameMode = 'classic', gameName, modeConfig: customModeConfig } = gameData;
+      // Usar datos validados y sanitizados
+      const { timeLimit, questionIds, gameMode, gameName, modeConfig: customModeConfig } = validation.sanitized;
       const pin = generatePin();
       const questions = await Question.find({ '_id': { $in: questionIds } });
 
@@ -76,8 +89,18 @@ const handleCreateGame = (socket, io) => {
  */
 const handleRejoinHost = (socket, io) => {
   socket.on("rejoin-host", async ({ pin }, callback) => {
+    // Validar PIN
+    const pinValidation = validatePin(pin);
+    if (!pinValidation.valid) {
+      console.warn(`⚠️ Validación fallida en rejoin-host:`, pinValidation.error);
+      return callback({
+        success: false,
+        error: pinValidation.error
+      });
+    }
+
     try {
-      const game = await Game.findOne({ pin }).populate("questions");
+      const game = await Game.findOne({ pin: pinValidation.sanitized }).populate("questions");
 
       if (!game) {
         return callback({ success: false, error: "Juego no encontrado" });
@@ -134,8 +157,18 @@ const handleStartGame = (socket, io) => {
       });
     }
 
+    // Validar PIN
+    const pinValidation = validatePin(pin);
+    if (!pinValidation.valid) {
+      console.warn(`⚠️ Validación fallida en start-game:`, pinValidation.error);
+      return callback({
+        success: false,
+        error: pinValidation.error
+      });
+    }
+
     try {
-      const game = await Game.findOne({ pin }).populate("questions");
+      const game = await Game.findOne({ pin: pinValidation.sanitized }).populate("questions");
 
       if (!game) {
         return callback({ success: false, error: "Juego no encontrado" });
@@ -176,8 +209,18 @@ const handleStartGame = (socket, io) => {
  */
 const handleCreateTournament = (socket, io) => {
   socket.on("create-tournament", async ({ pin }, callback) => {
+    // Validar PIN
+    const pinValidation = validatePin(pin);
+    if (!pinValidation.valid) {
+      console.warn(`⚠️ Validación fallida en create-tournament:`, pinValidation.error);
+      return callback({
+        success: false,
+        error: pinValidation.error
+      });
+    }
+
     try {
-      const game = await Game.findOne({ pin });
+      const game = await Game.findOne({ pin: pinValidation.sanitized });
 
       if (!game) {
         return callback({ success: false, error: "Juego no encontrado" });
@@ -218,8 +261,27 @@ const handleCreateTournament = (socket, io) => {
  */
 const handleStartTournamentMatch = (socket, io) => {
   socket.on("start-tournament-match", async ({ pin, matchId }, callback) => {
+    // Validar PIN
+    const pinValidation = validatePin(pin);
+    if (!pinValidation.valid) {
+      console.warn(`⚠️ Validación fallida en start-tournament-match:`, pinValidation.error);
+      return callback({
+        success: false,
+        error: pinValidation.error
+      });
+    }
+
+    // Validar matchId (debe ser un string no vacío)
+    if (!matchId || typeof matchId !== 'string' || matchId.trim().length === 0) {
+      console.warn(`⚠️ Validación fallida en start-tournament-match: matchId inválido`);
+      return callback({
+        success: false,
+        error: "El ID del match es requerido"
+      });
+    }
+
     try {
-      const game = await Game.findOne({ pin }).populate("questions");
+      const game = await Game.findOne({ pin: pinValidation.sanitized }).populate("questions");
 
       if (!game) {
         return callback({ success: false, error: "Juego no encontrado" });
@@ -339,8 +401,27 @@ const handleTournamentMatchEnd = async (game, gameResult, io) => {
  */
 const handleKickPlayer = (socket, io) => {
   socket.on("kick-player", async ({ pin, playerId, playerUsername }, callback) => {
+    // Validar PIN
+    const pinValidation = validatePin(pin);
+    if (!pinValidation.valid) {
+      console.warn(`⚠️ Validación fallida en kick-player:`, pinValidation.error);
+      return callback({
+        success: false,
+        error: pinValidation.error
+      });
+    }
+
+    // Validar playerId (debe ser un string no vacío)
+    if (!playerId || typeof playerId !== 'string' || playerId.trim().length === 0) {
+      console.warn(`⚠️ Validación fallida en kick-player: playerId inválido`);
+      return callback({
+        success: false,
+        error: "El ID del jugador es requerido"
+      });
+    }
+
     try {
-      const game = await Game.findOne({ pin });
+      const game = await Game.findOne({ pin: pinValidation.sanitized });
 
       if (!game) {
         return callback({ success: false, error: "Juego no encontrado" });
