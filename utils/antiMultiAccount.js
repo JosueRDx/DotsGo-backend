@@ -82,15 +82,14 @@ const canJoinGame = (pin, username, socket) => {
   if (pinFingerprints.has(fingerprint)) {
     const existing = pinFingerprints.get(fingerprint);
     
-    // IMPORTANTE: Solo permitir reconexión si es EXACTAMENTE el mismo usuario
-    // Y el socket es diferente (reconexión real, no nueva pestaña)
-    if (existing.username === username && existing.socketId !== socket.id) {
-      console.log(`✅ Reconexión permitida para ${username} (fingerprint match)`);
+    // IMPORTANTE: Permitir reconexión si es el mismo usuario
+    // (sin importar si el socket es diferente)
+    if (existing.username === username) {
+      console.log(`✅ Reconexión permitida para ${username} (mismo usuario, mismo fingerprint)`);
       return { allowed: true, reason: 'reconnection' };
     }
     
-    // Bloquear si ya hay una cuenta activa desde este navegador
-    // Incluso si es diferente username
+    // Bloquear solo si es diferente username
     console.log(`🚫 Multicuenta bloqueada - Fingerprint: ${fingerprint.substring(0, 20)}...`);
     console.log(`   Usuario existente: ${existing.username}, Intento: ${username}`);
     return {
