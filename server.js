@@ -1,6 +1,7 @@
 const express = require("express");
 const http = require("http");
 const dotenv = require("dotenv");
+const cron = require("node-cron");
 
 // Cargar variables de entorno
 dotenv.config();
@@ -10,6 +11,12 @@ const connectDatabase = require("./config/database");
 const { setupCors } = require("./config/cors");
 const setupSocketIO = require("./config/socket");
 const setupSocketHandlers = require("./socket");
+
+// Importar servicios
+const {
+  cleanupAbandonedGames,
+  cleanupStaleWaitingGames,
+} = require("./services/gameCleanupService");
 
 // Importar rutas
 const questionsRouter = require("./routes/questions.routes");
@@ -81,8 +88,55 @@ connectDatabase().then(() => {
     }
 
     console.log('\n================================\n');
+
+    // Configurar cron jobs para limpieza automática
+    setupCleanupJobs();
   });
 }).catch((error) => {
   console.error("❌ Error al iniciar el servidor:", error);
   process.exit(1);
 });
+
+/**
+ * Configura tareas programadas para limpieza automática de juegos
+ * - Cada 5 minutos: Revisa y finaliza juegos que excedan duración máxima
+ * - Cada 30 minutos: Limpia juegos en espera obsoletos (>1 hora sin iniciar)
+ */
+function setupCleanupJobs() {
+  // Job 1: Cleanup de juegos activos abandonados (cada 5 minutos)
+  cron.schedule("*/5 * * * *", async () => {
+    try {
+      console.log("🧹 Ejecutando cleanup de juegos abandonados...");
+      const stats = await cleanupAbandonedGames(io);
+      
+      if (stats.finalized > 0 || stats.warned > 0) {
+        console.log(
+          `✅ Cleanup completado: ${stats.finalized} finalizados, ${stats.warned} advertidos de ${stats.checked} revisados`
+        );
+      }
+    } catch (error) {
+      console.error("❌ Error en cron job de cleanup:", error.message);
+    }
+  });
+
+  // Job 2: Cleanup de juegos en espera obsoletos (cada 30 minutos)
+  cron.schedule("*/30 * * * *", async () => {
+    try {
+      console.log("🧹 Ejecutando cleanup de juegos en espera obsoletos...");
+      const deleted = await cleanupStaleWaitingGames();
+      
+      if (deleted > 0) {
+        console.log(`✅ Eliminados ${deleted} juegos obsoletos`);
+      }
+    } catch (error) {
+      console.error(
+        "❌ Error en cron job de cleanup de espera:",
+        error.message
+      );
+    }
+  });
+
+  console.log("⏰ Cron jobs de limpieza configurados:");
+  console.log("   - Cleanup de juegos abandonados: cada 5 minutos");
+  console.log("   - Cleanup de juegos en espera: cada 30 minutos");
+}

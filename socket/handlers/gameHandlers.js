@@ -197,6 +197,7 @@ const handleStartGame = (socket, io) => {
       game.status = "playing";
       game.currentQuestion = 0;
       game.questionStartTime = Date.now();
+      // Establecer timestamp de inicio del juego para auto-finalización
       game.gameStartedAt = new Date();
       await game.save();
 

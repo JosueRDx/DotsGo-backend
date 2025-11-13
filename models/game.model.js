@@ -72,7 +72,7 @@ const playerSchema = new mongoose.Schema({
 const gameSchema = new mongoose.Schema({
   pin: {
     type: String,
-    unique: true
+    required: true
   },
   questionStartTime: {
     type: Number,
@@ -140,6 +140,23 @@ const gameSchema = new mongoose.Schema({
     type: Date,
     default: null
   },
+  // Marca si el juego fue auto-finalizado por timeout
+  autoFinalized: {
+    type: Boolean,
+    default: false
+  },
+  // Timestamp cuando el juego terminó
+  endedAt: {
+    type: Date,
+    default: null
+  },
+  // Resultados finales para juegos auto-finalizados
+  finalResults: [{
+    id: String,
+    name: String,
+    score: Number,
+    position: Number
+  }],
   hostId: String,
   gameName: {
     type: String,
