@@ -5,6 +5,7 @@ const { emitQuestion } = require("../../services/questionService");
 const { getQuestionTimer, clearQuestionTimer } = require("../../utils/timer");
 const { initializePlayer, processPlayerAnswer, checkWinConditions } = require("../../services/gameModeService");
 const shuffleArray = require("../../utils/shuffle");
+const { checkRateLimit } = require("../../utils/rateLimiter");
 
 /**
  * Maneja la unión de un jugador al juego
@@ -13,6 +14,16 @@ const shuffleArray = require("../../utils/shuffle");
  */
 const handleJoinGame = (socket, io) => {
   socket.on("join-game", async ({ pin, username, character }, callback) => {
+    // Verificar rate limiting
+    const rateCheck = checkRateLimit(socket.id, 'join-game');
+    if (!rateCheck.allowed) {
+      return callback({
+        success: false,
+        error: `Demasiadas solicitudes. Intenta de nuevo en ${rateCheck.retryAfter} segundos.`,
+        rateLimitExceeded: true
+      });
+    }
+
     try {
       const game = await Game.findOne({ pin }).populate("questions");
 
@@ -205,6 +216,16 @@ const saveWithRetry = async (saveFn, maxRetries = 3) => {
  */
 const handleSubmitAnswer = (socket, io) => {
   socket.on("submit-answer", async ({ pin, answer, responseTime, questionId, isAutoSubmit }, callback) => {
+    // Verificar rate limiting
+    const rateCheck = checkRateLimit(socket.id, 'submit-answer');
+    if (!rateCheck.allowed) {
+      return callback({
+        success: false,
+        error: `Demasiadas respuestas. Intenta de nuevo en ${rateCheck.retryAfter} segundos.`,
+        rateLimitExceeded: true
+      });
+    }
+
     // Usar saveWithRetry para manejar concurrencia
     const processAnswer = async () => {
       const game = await Game.findOne({ pin }).populate("questions");

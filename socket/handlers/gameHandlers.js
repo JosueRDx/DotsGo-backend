@@ -4,6 +4,7 @@ const generatePin = require("../../utils/generatePin");
 const { emitQuestion } = require("../../services/questionService");
 const { endGame } = require("../../services/gameService");
 const tournamentService = require("../../services/tournamentService");
+const { checkRateLimit } = require("../../utils/rateLimiter");
 
 /**
  * Maneja la creación de un nuevo juego
@@ -12,6 +13,16 @@ const tournamentService = require("../../services/tournamentService");
  */
 const handleCreateGame = (socket, io) => {
   socket.on("create-game", async (gameData, callback) => {
+    // Verificar rate limiting
+    const rateCheck = checkRateLimit(socket.id, 'create-game');
+    if (!rateCheck.allowed) {
+      return callback({
+        success: false,
+        error: `Demasiadas solicitudes. Intenta de nuevo en ${rateCheck.retryAfter} segundos.`,
+        rateLimitExceeded: true
+      });
+    }
+
     try {
       const { timeLimit, questionIds, gameMode = 'classic', gameName, modeConfig: customModeConfig } = gameData;
       const pin = generatePin();
@@ -72,6 +83,15 @@ const handleRejoinHost = (socket, io) => {
         return callback({ success: false, error: "Juego no encontrado" });
       }
 
+      // Verificar que el socket que se reconecta sea el host original
+      if (game.hostId !== socket.id) {
+        console.warn(`Intento de reconexión no autorizada al juego ${pin} por socket ${socket.id}. Host real: ${game.hostId}`);
+        return callback({ 
+          success: false, 
+          error: "No autorizado. Solo el host puede reconectarse." 
+        });
+      }
+
       socket.join(pin);
       console.log(`🔄 Admin socket ${socket.id} se reconectó a sala ${pin} con ${game.players.length} jugadores`);
 
@@ -104,6 +124,16 @@ const handleRejoinHost = (socket, io) => {
  */
 const handleStartGame = (socket, io) => {
   socket.on("start-game", async ({ pin }, callback) => {
+    // Verificar rate limiting
+    const rateCheck = checkRateLimit(socket.id, 'start-game');
+    if (!rateCheck.allowed) {
+      return callback({
+        success: false,
+        error: `Demasiadas solicitudes. Intenta de nuevo en ${rateCheck.retryAfter} segundos.`,
+        rateLimitExceeded: true
+      });
+    }
+
     try {
       const game = await Game.findOne({ pin }).populate("questions");
 

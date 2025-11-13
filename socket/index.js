@@ -9,6 +9,10 @@ const {
   handleGetRoomPlayers,
   handleGetCurrentQuestion
 } = require("./handlers/roomHandlers");
+const { clearSocketData, startCleanupInterval } = require("../utils/rateLimiter");
+
+// Iniciar limpieza periódica de datos de rate limiting
+startCleanupInterval();
 
 /**
  * Configura todos los manejadores de eventos de Socket.IO
@@ -37,6 +41,11 @@ const setupSocketHandlers = (io) => {
     // Handlers de sala
     handleGetRoomPlayers(socket, io);
     handleGetCurrentQuestion(socket, io);
+
+    // Limpiar datos de rate limiting al desconectar
+    socket.on("disconnect", () => {
+      clearSocketData(socket.id);
+    });
   });
 };
 
