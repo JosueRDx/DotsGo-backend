@@ -570,15 +570,27 @@ const handleDisconnect = (socket, io) => {
     clearSocketData(socket.id);
 
     try {
-      const game = await Game.findOne({ "players.id": socket.id });
+      // Función para procesar la desconexión con reintento
+      const processDisconnect = async () => {
+        const game = await Game.findOne({ "players.id": socket.id });
 
-      if (game) {
+        if (!game) return null;
+
         const player = game.players.find(p => p.id === socket.id);
         const playerName = player ? player.username : 'Jugador desconocido';
 
         // Remover jugador de la partida
         game.players = game.players.filter(p => p.id !== socket.id);
         await game.save();
+
+        return { game, playerName };
+      };
+
+      // Usar saveWithRetry para manejar concurrencia
+      const result = await saveWithRetry(processDisconnect);
+
+      if (result) {
+        const { game, playerName } = result;
 
         // Notificar a otros jugadores
         io.to(game.pin).emit("player-left", {
@@ -622,9 +634,12 @@ const handleLeaveGame = (socket, io) => {
     }
 
     try {
-      const game = await Game.findOne({ pin });
+      // Función para procesar la salida con reintento
+      const processLeave = async () => {
+        const game = await Game.findOne({ pin });
 
-      if (game) {
+        if (!game) return null;
+
         // Buscar por socket.id o por username como fallback
         let playerIndex = game.players.findIndex(p => p.id === socket.id);
         
@@ -633,27 +648,36 @@ const handleLeaveGame = (socket, io) => {
           playerIndex = game.players.findIndex(p => p.username === username);
         }
 
-        if (playerIndex !== -1) {
-          const removedPlayer = game.players[playerIndex];
-          game.players.splice(playerIndex, 1);
-          await game.save();
+        if (playerIndex === -1) return null;
 
-          socket.leave(pin);
+        const removedPlayer = game.players[playerIndex];
+        game.players.splice(playerIndex, 1);
+        await game.save();
 
-          io.to(pin).emit("player-left", {
-            playerId: removedPlayer.id,
-            players: game.players,
-            reason: 'voluntary_leave'
-          });
+        return { game, removedPlayer };
+      };
 
-          io.to(pin).emit("players-updated", {
-            players: game.players
-          });
+      // Usar saveWithRetry para manejar concurrencia
+      const result = await saveWithRetry(processLeave);
 
-          logger.info(`Jugador ${username} salió voluntariamente del juego ${pin}`);
-        } else {
-          logger.debug(`No se encontró jugador ${username} en el juego ${pin}`);
-        }
+      if (result) {
+        const { game, removedPlayer } = result;
+
+        socket.leave(pin);
+
+        io.to(pin).emit("player-left", {
+          playerId: removedPlayer.id,
+          players: game.players,
+          reason: 'voluntary_leave'
+        });
+
+        io.to(pin).emit("players-updated", {
+          players: game.players
+        });
+
+        logger.info(`Jugador ${username} salió voluntariamente del juego ${pin}`);
+      } else {
+        logger.debug(`No se encontró jugador ${username} en el juego ${pin}`);
       }
     } catch (error) {
       logger.error("Error en leave-game:", error);
