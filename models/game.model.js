@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 
 const playerSchema = new mongoose.Schema({
   id: String, // Socket ID actual
-  sessionId: String, // ID único persistente para reconexión
+  socketId: String, // 🔑 Socket ID único por pestaña/conexión
   username: String,
   score: {
     type: Number,
@@ -64,6 +64,11 @@ const playerSchema = new mongoose.Schema({
   eliminatedAt: {
     type: Date,
     default: null // Cuándo fue eliminado
+  },
+  // NUEVO: Contador de salidas/desconexiones
+  exitCount: {
+    type: Number,
+    default: 0 // Cuántas veces ha salido del juego
   },
   answers: [
     {

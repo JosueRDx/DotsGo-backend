@@ -6,16 +6,10 @@ const { getQuestionTimer, clearQuestionTimer } = require("../../utils/timer");
 const { initializePlayer, processPlayerAnswer, checkWinConditions } = require("../../services/gameModeService");
 const shuffleArray = require("../../utils/shuffle");
 const { 
-  generateSessionId, 
   schedulePlayerCleanup, 
-  cancelPlayerCleanup, 
-  isWithinGracePeriod 
+  cancelPlayerCleanup
 } = require("../../utils/sessionManager");
-const {
-  canJoinGame,
-  registerPlayer,
-  unregisterPlayer
-} = require("../../utils/antiMultiAccount");
+// Sistema anti-multicuentas ya no es necesario con socket.id
 
 /**
  * Maneja la unión de un jugador al juego
@@ -23,7 +17,7 @@ const {
  * @param {Object} io - Instancia de Socket.IO
  */
 const handleJoinGame = (socket, io) => {
-  socket.on("join-game", async ({ pin, username, character, sessionId: clientSessionId }, callback) => {
+  socket.on("join-game", async ({ pin, username, character }, callback) => {
     try {
       const game = await Game.findOne({ pin }).populate("questions");
 
@@ -37,153 +31,114 @@ const handleJoinGame = (socket, io) => {
 
       const totalQuestions = game.questions.length;
       
-      // NUEVO: Verificar si es una reconexión
-      let existingPlayer = null;
-      if (clientSessionId) {
-        existingPlayer = game.players.find(p => p.sessionId === clientSessionId);
-      }
+      // 🔑 SISTEMA BASADO EN SOCKET.ID
+      // Buscar si este socket.id ya tiene un jugador registrado
+      let existingPlayer = game.players.find(p => p.socketId === socket.id);
       
-      // NUEVO: También buscar por username (reingreso desde mismo navegador)
-      if (!existingPlayer) {
-        existingPlayer = game.players.find(p => p.username === username);
-      }
-
-      // Si el jugador existe, reconectar
-      if (existingPlayer) {
+      // Si el jugador existe con este socket.id, reconectar
+      if (existingPlayer && !existingPlayer.isConnected) {
         console.log(`🔄 Reconectando jugador ${existingPlayer.username}`);
-        console.log(`   SessionId: ${clientSessionId || existingPlayer.sessionId || 'nuevo'}`);
-        console.log(`   Estado anterior: ${existingPlayer.isConnected ? 'conectado' : 'desconectado'}`);
-        console.log(`   Socket anterior: ${existingPlayer.id}, nuevo: ${socket.id}`);
+        console.log(`   Socket.id: ${socket.id}`);
+        console.log(`   Estado anterior: desconectado`);
         
-        // Cancelar limpieza programada si hay sessionId
-        if (clientSessionId) {
-          cancelPlayerCleanup(clientSessionId);
-        } else if (existingPlayer.sessionId) {
-          cancelPlayerCleanup(existingPlayer.sessionId);
-        }
+        // Cancelar limpieza programada
+        cancelPlayerCleanup(socket.id);
         
-        // Actualizar socket ID y estado
+        // Actualizar estado
         existingPlayer.id = socket.id;
         existingPlayer.isConnected = true;
         existingPlayer.disconnectedAt = null;
         existingPlayer.lastActiveAt = new Date();
         
-        // Usar sessionId existente si no se proporcionó uno nuevo
-        const finalSessionId = clientSessionId || existingPlayer.sessionId || generateSessionId();
-        existingPlayer.sessionId = finalSessionId;
-        
-        // Guardar con reintentos para evitar conflictos de versión
-        try {
-          await game.save();
-        } catch (error) {
-          if (error.name === 'VersionError') {
-            console.log('⚠️ VersionError en reconexión, reintentando...');
-            const freshGame = await Game.findById(game._id);
-            const freshPlayer = freshGame.players.find(p => p.username === username);
-            if (freshPlayer) {
-              freshPlayer.id = socket.id;
-              freshPlayer.isConnected = true;
-              freshPlayer.disconnectedAt = null;
-              freshPlayer.lastActiveAt = new Date();
-              freshPlayer.sessionId = finalSessionId;
-              await freshGame.save();
-            }
-          } else {
-            throw error;
-          }
-        }
-        
+        await game.save();
         socket.join(pin);
-        
-        // Re-registrar en sistema anti-multicuentas
-        registerPlayer(pin, username, socket);
         
         // Notificar a todos que el jugador se reconectó
         io.to(pin).emit("player-reconnected", {
           playerId: socket.id,
-          sessionId: finalSessionId,
+          socketId: socket.id,
           username: existingPlayer.username,
           players: game.players.filter(p => p.isConnected)
         });
         
         io.to(pin).emit("players-updated", {
-          players: game.players.filter(p => p.isConnected)
+          players: game.players
         });
         
         let joinResponse = {
           success: true,
           reconnected: true,
-          sessionId: finalSessionId,
+          socketId: socket.id,
           gameStatus: game.status,
           totalQuestions,
-            playerData: {
-              score: existingPlayer.score,
-              correctAnswers: existingPlayer.correctAnswers,
-              lives: existingPlayer.lives,
-              position: existingPlayer.position,
-              isEliminated: existingPlayer.isEliminated,
-              currentQuestionIndex: existingPlayer.currentQuestionIndex
-            }
-          };
-          
-          // Si el juego está en curso, enviar pregunta actual
-          if (game.status === "playing" && game.currentQuestion < game.questions.length) {
-            const playerQuestionId = existingPlayer.questionOrder[game.currentQuestion];
-            const playerQuestion = game.questions.find(q => q._id.toString() === playerQuestionId.toString());
-            
-            if (playerQuestion) {
-              const questionStartTime = game.questionStartTime || Date.now();
-              const timeElapsed = Date.now() - questionStartTime;
-              const timeRemaining = Math.max(0, Math.floor((game.timeLimitPerQuestion - timeElapsed) / 1000));
-              
-              joinResponse.currentQuestion = {
-                question: playerQuestion,
-                timeRemaining,
-                currentIndex: game.currentQuestion + 1
-              };
-              
-              socket.emit("game-started", {
-                question: playerQuestion,
-                timeLimit: timeRemaining,
-                currentIndex: game.currentQuestion + 1,
-                totalQuestions: totalQuestions,
-              });
-            }
+          playerData: {
+            score: existingPlayer.score,
+            correctAnswers: existingPlayer.correctAnswers,
+            lives: existingPlayer.lives,
+            position: existingPlayer.position,
+            isEliminated: existingPlayer.isEliminated,
+            currentQuestionIndex: existingPlayer.currentQuestionIndex
           }
+        };
+        
+        // Si el juego está en curso, enviar pregunta actual
+        if (game.status === "playing" && game.currentQuestion < game.questions.length) {
+          const playerQuestionId = existingPlayer.questionOrder[game.currentQuestion];
+          const playerQuestion = game.questions.find(q => q._id.toString() === playerQuestionId.toString());
           
-          return callback(joinResponse);
+          if (playerQuestion) {
+            const questionStartTime = game.questionStartTime || Date.now();
+            const timeElapsed = Date.now() - questionStartTime;
+            const timeRemaining = Math.max(0, Math.floor((game.timeLimitPerQuestion - timeElapsed) / 1000));
+            
+            joinResponse.currentQuestion = {
+              question: playerQuestion,
+              timeRemaining,
+              currentIndex: game.currentQuestion + 1
+            };
+            
+            socket.emit("game-started", {
+              question: playerQuestion,
+              timeLimit: timeRemaining,
+              currentIndex: game.currentQuestion + 1,
+              totalQuestions: totalQuestions,
+            });
+          }
+        }
+        
+        return callback(joinResponse);
       }
       
-      // NUEVO: Verificar anti-multicuentas
-      const multiAccountCheck = canJoinGame(pin, username, socket);
-      if (!multiAccountCheck.allowed) {
-        console.log(`🚫 Intento de multicuenta bloqueado - User: ${username}, Razón: ${multiAccountCheck.code}`);
-        return callback({ 
-          success: false, 
-          error: multiAccountCheck.reason,
-          code: multiAccountCheck.code
-        });
-      }
-      
+      // 🆕 NUEVO JUGADOR
       // Verificar si el username ya existe (evitar duplicados)
-      const duplicatePlayer = game.players.find(p => 
-        p.username === username && p.isConnected
-      );
+      // IMPORTANTE: Verificar TODOS los jugadores, no solo conectados
+      const duplicatePlayer = game.players.find(p => p.username === username);
       
       if (duplicatePlayer) {
-        return callback({ 
-          success: false, 
-          error: "Ya existe un jugador con ese nombre en la partida" 
-        });
+        console.log(`🚫 Intento de crear usuario duplicado: ${username}`);
+        console.log(`   Jugador existente:`);
+        console.log(`   - Username: ${duplicatePlayer.username}`);
+        console.log(`   - Conectado: ${duplicatePlayer.isConnected}`);
+        console.log(`   - Socket actual: ${duplicatePlayer.socketId}`);
+        console.log(`   - Socket nuevo: ${socket.id}`);
+        
+        // Si el jugador existe pero está desconectado, permitir reconexión
+        // pero SOLO si es el mismo socket.id (reconexión real)
+        if (!duplicatePlayer.isConnected && duplicatePlayer.socketId === socket.id) {
+          console.log(`✅ Permitiendo reconexión (mismo socket.id)`);
+          // Continuar con la lógica de reconexión más arriba
+        } else {
+          return callback({ 
+            success: false, 
+            error: `Ya existe un jugador con el nombre "${username}" en esta partida` 
+          });
+        }
       }
-      
-      // Generar nuevo sessionId
-      const sessionId = generateSessionId();
       
       let joinResponse = {
         success: true,
         reconnected: false,
-        sessionId,
+        socketId: socket.id,
         gameStatus: game.status,
         totalQuestions
       };
@@ -193,10 +148,10 @@ const handleJoinGame = (socket, io) => {
         // Crear orden aleatorio para jugador que se une tarde
         const shuffledQuestions = shuffleArray(game.questions.map(q => q._id));
 
-        // NUEVO: Inicializar jugador según el modo de juego
+        // Inicializar jugador según el modo de juego
         const basePlayerData = {
           id: socket.id,
-          sessionId, // NUEVO: ID de sesión persistente
+          socketId: socket.id, // 🔑 Identificador único por socket
           username,
           score: 0,
           correctAnswers: 0,
@@ -219,9 +174,6 @@ const handleJoinGame = (socket, io) => {
         game.players.push(playerData);
         await game.save();
         socket.join(pin);
-        
-        // NUEVO: Registrar en sistema anti-multicuentas
-        registerPlayer(pin, username, socket);
 
         // Enviar pregunta actual según el orden aleatorio del nuevo jugador
         const playerQuestionId = shuffledQuestions[game.currentQuestion];
@@ -267,7 +219,7 @@ const handleJoinGame = (socket, io) => {
         });
 
         io.to(pin).emit("players-updated", {
-          players: connectedPlayers
+          players: game.players // CAMBIO: Enviar TODOS los jugadores
         });
       }
 
@@ -282,10 +234,10 @@ const handleJoinGame = (socket, io) => {
           console.log(`  ${i + 1}. ${q ? q.title : 'Pregunta no encontrada'}`);
         }
 
-        // NUEVO: Inicializar jugador según el modo de juego
+        // Inicializar jugador según el modo de juego
         const basePlayerData = {
           id: socket.id,
-          sessionId, // NUEVO: ID de sesión persistente
+          socketId: socket.id, // 🔑 Identificador único por socket
           username,
           score: 0,
           correctAnswers: 0,
@@ -308,9 +260,6 @@ const handleJoinGame = (socket, io) => {
         game.players.push(playerData);
         await game.save();
         socket.join(pin);
-        
-        // NUEVO: Registrar en sistema anti-multicuentas
-        registerPlayer(pin, username, socket);
 
         // Debug: Verificar sockets en la sala
         const socketsInRoom = await io.in(pin).allSockets();
@@ -334,7 +283,7 @@ const handleJoinGame = (socket, io) => {
 
         console.log(`📤 Emitiendo players-updated a sala ${pin} con ${connectedPlayers.length} jugadores conectados`);
         io.to(pin).emit("players-updated", {
-          players: connectedPlayers
+          players: game.players
         });
 
         console.log(`Jugador conectado: ${username} con personaje: ${character?.name || "Sin personaje"} - Juego tiene ${game.questions.length} preguntas`);
@@ -677,12 +626,9 @@ const handleDisconnect = (socket, io) => {
         }
 
         const playerName = player.username;
-        const sessionId = player.sessionId;
+        const socketId = socket.id;
 
-        console.log(`🔌 Jugador ${playerName} desconectado (razón: ${reason})`);
-
-        // NUEVO: Desregistrar del sistema anti-multicuentas (desconexión real)
-        unregisterPlayer(game.pin, playerName, socket, true);
+        console.log(`🔌 Jugador ${playerName} desconectado (socket: ${socketId}, razón: ${reason})`);
 
         // Marcar como desconectado pero NO eliminar
         player.isConnected = false;
@@ -692,34 +638,34 @@ const handleDisconnect = (socket, io) => {
         // Notificar desconexión temporal
         io.to(game.pin).emit("player-disconnected", {
           playerId: socket.id,
-          sessionId: sessionId,
+          socketId: socketId,
           username: playerName,
           canReconnect: true,
           gracePeriodSeconds: 180, // 3 minutos
-          players: game.players.filter(p => p.isConnected) // Solo jugadores conectados
+          players: game.players.filter(p => p.isConnected)
         });
 
         // Programar limpieza después del período de gracia
-        schedulePlayerCleanup(sessionId, game.pin, async () => {
+        schedulePlayerCleanup(socketId, game.pin, async () => {
           try {
             const updatedGame = await Game.findOne({ pin: game.pin });
             
             if (updatedGame) {
               const stillDisconnected = updatedGame.players.find(
-                p => p.sessionId === sessionId && !p.isConnected
+                p => p.socketId === socketId && !p.isConnected
               );
               
               if (stillDisconnected) {
                 console.log(`🗑️ Eliminando jugador ${playerName} por timeout de reconexión`);
                 
                 updatedGame.players = updatedGame.players.filter(
-                  p => p.sessionId !== sessionId
+                  p => p.socketId !== socketId
                 );
                 await updatedGame.save();
 
                 // Notificar eliminación definitiva
                 io.to(updatedGame.pin).emit("player-removed", {
-                  sessionId: sessionId,
+                  socketId: socketId,
                   username: playerName,
                   reason: 'reconnection_timeout',
                   players: updatedGame.players.filter(p => p.isConnected)
@@ -764,23 +710,32 @@ const handleLeaveGame = (socket, io) => {
 
         if (playerIndex !== -1) {
           const removedPlayer = game.players[playerIndex];
-          game.players.splice(playerIndex, 1);
+          
+          // NUEVO: Incrementar contador de salidas
+          removedPlayer.exitCount = (removedPlayer.exitCount || 0) + 1;
+          console.log(`👁️ ${username} ha salido ${removedPlayer.exitCount} veces`);
+          
+          // Marcar como desconectado en lugar de eliminar
+          removedPlayer.isConnected = false;
+          removedPlayer.disconnectedAt = new Date();
+          
           await game.save();
 
           socket.leave(pin);
           
-          // NUEVO: NO desregistrar inmediatamente en salida voluntaria
-          // Mantener registro por 5 minutos para prevenir multicuentas
-          unregisterPlayer(pin, username, socket, false);
-
+          // Filtrar solo jugadores conectados para emisión
+          const connectedPlayers = game.players.filter(p => p.isConnected);
+          
           io.to(pin).emit("player-left", {
             playerId: removedPlayer.id,
-            players: game.players,
+            username: removedPlayer.username,
+            exitCount: removedPlayer.exitCount,
+            players: connectedPlayers,
             reason: 'voluntary_leave'
           });
 
           io.to(pin).emit("players-updated", {
-            players: game.players
+            players: game.players // CAMBIO: Enviar TODOS los jugadores
           });
 
           console.log(`Jugador ${username} salió voluntariamente del juego ${pin}`);
@@ -794,9 +749,75 @@ const handleLeaveGame = (socket, io) => {
   });
 };
 
+/**
+ * Maneja cuando un jugador oculta la pestaña
+ * @param {Socket} socket - Socket del cliente
+ * @param {Object} io - Instancia de Socket.IO
+ */
+const handleTabHidden = (socket, io) => {
+  socket.on("tab-hidden", async ({ pin, username }) => {
+    try {
+      const game = await Game.findOne({ pin });
+      
+      if (game) {
+        const player = game.players.find(p => p.username === username);
+        
+        if (player) {
+          // Incrementar contador de cambios de pestaña
+          player.exitCount = (player.exitCount || 0) + 1;
+          await game.save();
+          
+          console.log(`👁️ ${username} ocultó pestaña - Total cambios: ${player.exitCount}`);
+          
+          // Notificar al admin
+          io.to(pin).emit("player-tab-changed", {
+            username: player.username,
+            exitCount: player.exitCount,
+            action: 'hidden'
+          });
+        }
+      }
+    } catch (error) {
+      console.error("Error en tab-hidden:", error);
+    }
+  });
+};
+
+/**
+ * Maneja cuando un jugador muestra la pestaña
+ * @param {Socket} socket - Socket del cliente
+ * @param {Object} io - Instancia de Socket.IO
+ */
+const handleTabVisible = (socket, io) => {
+  socket.on("tab-visible", async ({ pin, username }) => {
+    try {
+      const game = await Game.findOne({ pin });
+      
+      if (game) {
+        const player = game.players.find(p => p.username === username);
+        
+        if (player) {
+          console.log(`👁️ ${username} mostró pestaña - Total cambios: ${player.exitCount || 0}`);
+          
+          // Notificar al admin
+          io.to(pin).emit("player-tab-changed", {
+            username: player.username,
+            exitCount: player.exitCount || 0,
+            action: 'visible'
+          });
+        }
+      }
+    } catch (error) {
+      console.error("Error en tab-visible:", error);
+    }
+  });
+};
+
 module.exports = {
   handleJoinGame,
   handleSubmitAnswer,
   handleDisconnect,
-  handleLeaveGame
+  handleLeaveGame,
+  handleTabHidden,
+  handleTabVisible
 };
