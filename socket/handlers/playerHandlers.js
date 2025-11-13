@@ -7,6 +7,7 @@ const { initializePlayer, processPlayerAnswer, checkWinConditions } = require(".
 const shuffleArray = require("../../utils/shuffle");
 const { checkRateLimit, clearSocketData } = require("../../utils/rateLimiter");
 const { validateJoinGameData, validateSubmitAnswerData } = require("../../utils/validation");
+const logger = require("../../utils/logger");
 
 /**
  * Maneja la unión de un jugador al juego
@@ -33,7 +34,7 @@ const handleJoinGame = (socket, io) => {
     // Validar datos de entrada
     const validation = validateJoinGameData(joinData);
     if (!validation.valid) {
-      console.warn(`⚠️ Validación fallida en join-game:`, validation.errors);
+      logger.warn(`⚠️ Validación fallida en join-game:`, validation.errors);
       return callback({
         success: false,
         error: validation.errors[0], // Enviar el primer error
@@ -90,7 +91,7 @@ const handleJoinGame = (socket, io) => {
         };
 
         const playerData = initializePlayer(basePlayerData, game.gameMode, game.modeConfig);
-        console.log(`🎮 Jugador ${username} se unió tarde al modo ${game.gameMode}:`, {
+        logger.info(`🎮 Jugador ${username} se unió tarde al modo ${game.gameMode}:`, {
           lives: playerData.lives,
           position: playerData.position,
           isEliminated: playerData.isEliminated
@@ -127,7 +128,7 @@ const handleJoinGame = (socket, io) => {
             totalQuestions: totalQuestions,
           });
 
-          console.log(`🔄 Jugador ${username} se unió tarde - Pregunta: ${playerQuestion.title}`);
+          logger.debug(`🔄 Jugador ${username} se unió tarde - Pregunta: ${playerQuestion.title}`);
         }
         io.to(pin).emit("player-joined", {
           players: game.players,
@@ -150,10 +151,10 @@ const handleJoinGame = (socket, io) => {
         const shuffledQuestions = shuffleArray(game.questions.map(q => q._id));
 
         // 🐛 DEBUG: Ver orden asignado
-        console.log(`\n🎲 Jugador ${username} - Orden de preguntas:`);
+        logger.debug(`\n🎲 Jugador ${username} - Orden de preguntas:`);
         for (let i = 0; i < shuffledQuestions.length; i++) {
           const q = game.questions.find(question => question._id.toString() === shuffledQuestions[i].toString());
-          console.log(`  ${i + 1}. ${q ? q.title : 'Pregunta no encontrada'}`);
+          logger.debug(`  ${i + 1}. ${q ? q.title : 'Pregunta no encontrada'}`);
         }
 
         // NUEVO: Inicializar jugador según el modo de juego
@@ -170,7 +171,7 @@ const handleJoinGame = (socket, io) => {
         };
 
         const playerData = initializePlayer(basePlayerData, game.gameMode, game.modeConfig);
-        console.log(`🎮 Jugador ${username} inicializado para modo ${game.gameMode}:`, {
+        logger.info(`🎮 Jugador ${username} inicializado para modo ${game.gameMode}:`, {
           lives: playerData.lives,
           position: playerData.position,
           isEliminated: playerData.isEliminated
@@ -182,10 +183,10 @@ const handleJoinGame = (socket, io) => {
 
         // Debug: Verificar sockets en la sala
         const socketsInRoom = await io.in(pin).allSockets();
-        console.log(`🔍 Jugador ${username} se unió. Sockets en sala ${pin}:`, Array.from(socketsInRoom));
-        console.log(`📊 Total jugadores en BD: ${game.players.length}`);
+        logger.debug(`🔍 Jugador ${username} se unió. Sockets en sala ${pin}:`, Array.from(socketsInRoom));
+        logger.debug(`📊 Total jugadores en BD: ${game.players.length}`);
 
-        console.log(`📤 Emitiendo player-joined a sala ${pin} con ${game.players.length} jugadores`);
+        logger.debug(`📤 Emitiendo player-joined a sala ${pin} con ${game.players.length} jugadores`);
         io.to(pin).emit("player-joined", {
           players: game.players,
           gameInfo: {
@@ -197,12 +198,12 @@ const handleJoinGame = (socket, io) => {
           }
         });
 
-        console.log(`📤 Emitiendo players-updated a sala ${pin} con ${game.players.length} jugadores`);
+        logger.debug(`📤 Emitiendo players-updated a sala ${pin} con ${game.players.length} jugadores`);
         io.to(pin).emit("players-updated", {
           players: game.players
         });
 
-        console.log(`Jugador conectado: ${username} con personaje: ${character?.name || "Sin personaje"} - Juego tiene ${game.questions.length} preguntas`);
+        logger.info(`Jugador conectado: ${username} con personaje: ${character?.name || "Sin personaje"} - Juego tiene ${game.questions.length} preguntas`);
         joinResponse = {
           ...joinResponse,
           joinedDuringGame: false
@@ -228,7 +229,7 @@ const saveWithRetry = async (saveFn, maxRetries = 3) => {
       return await saveFn();
     } catch (error) {
       if (error.name === 'VersionError' && attempt < maxRetries - 1) {
-        console.log(`⚠️ VersionError detectado, reintentando (${attempt + 1}/${maxRetries})...`);
+        logger.warn(`⚠️ VersionError detectado, reintentando (${attempt + 1}/${maxRetries})...`);
         // Esperar un tiempo aleatorio antes de reintentar (10-50ms)
         await new Promise(resolve => setTimeout(resolve, 10 + Math.random() * 40));
         continue;
@@ -268,7 +269,7 @@ const handleSubmitAnswer = (socket, io) => {
     });
 
     if (!validation.valid) {
-      console.warn(`⚠️ Validación fallida en submit-answer:`, validation.errors);
+      logger.warn(`⚠️ Validación fallida en submit-answer:`, validation.errors);
       return callback({
         success: false,
         error: validation.errors[0],
@@ -305,11 +306,11 @@ const handleSubmitAnswer = (socket, io) => {
         return callback({ success: false, error: "Pregunta no encontrada" });
       }
 
-      console.log("=== VALIDACIÓN DE RESPUESTA ===");
-      console.log("Jugador:", player.username);
-      console.log("Pregunta del jugador:", currentQuestion.title);
-      console.log("Respuesta recibida:", JSON.stringify(answer, null, 2));
-      console.log("Respuesta correcta:", JSON.stringify(currentQuestion.correctAnswer, null, 2));
+      logger.debug("=== VALIDACIÓN DE RESPUESTA ===");
+      logger.debug("Jugador:", player.username);
+      logger.debug("Pregunta del jugador:", currentQuestion.title);
+      logger.debug("Respuesta recibida:", JSON.stringify(answer, null, 2));
+      logger.debug("Respuesta correcta:", JSON.stringify(currentQuestion.correctAnswer, null, 2));
 
       // Verificar si la respuesta está vacía
       const isEmptyAnswer = !answer.pictogram &&
@@ -320,9 +321,9 @@ const handleSubmitAnswer = (socket, io) => {
 
       if (!isEmptyAnswer) {
         isCorrect = isAnswerCorrect(answer, currentQuestion.correctAnswer);
-        console.log(`Validación automática -> ${isCorrect ? 'CORRECTA' : 'INCORRECTA'}`);
+        logger.debug(`Validación automática -> ${isCorrect ? 'CORRECTA' : 'INCORRECTA'}`);
       } else {
-        console.log("❌ Respuesta vacía");
+        logger.debug("❌ Respuesta vacía");
       }
 
       const timeLimitSeconds = game.timeLimitPerQuestion / 1000;
@@ -340,9 +341,9 @@ const handleSubmitAnswer = (socket, io) => {
         pointsAwarded = autoSubmission
           ? MIN_TIMEOUT_POINTS
           : calculatePoints(normalizedResponseTime, game.timeLimitPerQuestion);
-        console.log(`✅ RESPUESTA CORRECTA - Puntos: ${pointsAwarded}${autoSubmission ? " (auto)" : ""}`);
+        logger.debug(`✅ RESPUESTA CORRECTA - Puntos: ${pointsAwarded}${autoSubmission ? " (auto)" : ""}`);
       } else {
-        console.log(`❌ RESPUESTA INCORRECTA - Puntos: 0`);
+        logger.debug(`❌ RESPUESTA INCORRECTA - Puntos: 0`);
       }
 
       // Guardar respuesta o actualizar la existente (por timeout previo)
@@ -381,8 +382,8 @@ const handleSubmitAnswer = (socket, io) => {
 
       await game.save();
 
-      console.log(`Jugador ${player.username} - Correcta: ${isCorrect} - Puntos: ${pointsAwarded} - Total: ${player.score}`);
-      console.log("=================================");
+      logger.debug(`Jugador ${player.username} - Correcta: ${isCorrect} - Puntos: ${pointsAwarded} - Total: ${player.score}`);
+      logger.debug("=================================");
 
       // NUEVO: Procesar respuesta según el modo de juego
       const modeResult = await processPlayerAnswer(game, player, isCorrect, pointsAwarded, io);
@@ -458,7 +459,7 @@ const handleSubmitAnswer = (socket, io) => {
 
       // NUEVO: Verificar si el juego terminó por condiciones del modo
       if (result.modeResult && result.modeResult.gameEnded) {
-        console.log(`🏁 Juego terminado por modo ${result.game.gameMode}:`, result.modeResult.winner);
+        logger.info(`🏁 Juego terminado por modo ${result.game.gameMode}:`, result.modeResult.winner);
         
         // Actualizar el juego con el ganador
         await Game.findByIdAndUpdate(result.game._id, {
@@ -491,7 +492,7 @@ const handleSubmitAnswer = (socket, io) => {
 
       // Si todos han respondido su pregunta actual, forzar el timeout para mostrar respuestas correctas
       if (haveAllPlayersAnswered(result.game)) {
-        console.log("🎯 Todos los jugadores han respondido, forzando timeout para mostrar respuestas correctas");
+        logger.debug("🎯 Todos los jugadores han respondido, forzando timeout para mostrar respuestas correctas");
         
         // Obtener el timer actual y ejecutarlo inmediatamente
         const currentTimer = getQuestionTimer(pin);
@@ -540,10 +541,10 @@ const handleSubmitAnswer = (socket, io) => {
                 
                 // Verificar si aún hay preguntas por hacer
                 if (nextGame.currentQuestion < nextGame.questions.length) {
-                  console.log(`🔄 Continuando con pregunta ${nextGame.currentQuestion + 1} de ${nextGame.questions.length}`);
+                  logger.debug(`🔄 Continuando con pregunta ${nextGame.currentQuestion + 1} de ${nextGame.questions.length}`);
                   emitQuestion(nextGame, nextGame.currentQuestion, io, endGame);
                 } else {
-                  console.log(`🏁 Todas las preguntas completadas, terminando juego`);
+                  logger.debug(`🏁 Todas las preguntas completadas, terminando juego`);
                   endGame(nextGame, nextGame.pin, io);
                 }
               }, 5000); // 5 segundos para mostrar las respuestas correctas
@@ -552,7 +553,7 @@ const handleSubmitAnswer = (socket, io) => {
         }
       }
     } catch (error) {
-      console.error("Error en submit-answer:", error);
+      logger.error("Error en submit-answer:", error);
       callback({ success: false, error: error.message });
     }
   });
@@ -590,10 +591,10 @@ const handleDisconnect = (socket, io) => {
           players: game.players
         });
 
-        console.log(`Jugador ${playerName} se desconectó del juego ${game.pin} (razón: ${reason})`);
+        logger.info(`Jugador ${playerName} se desconectó del juego ${game.pin} (razón: ${reason})`);
       }
     } catch (error) {
-      console.error("Error en disconnect:", error);
+      logger.error("Error en disconnect:", error);
     }
   });
 };
@@ -609,14 +610,14 @@ const handleLeaveGame = (socket, io) => {
     if (pin) {
       const pinValidation = validatePin(pin);
       if (!pinValidation.valid) {
-        console.warn(`⚠️ Validación fallida en leave-game:`, pinValidation.error);
+        logger.warn(`⚠️ Validación fallida en leave-game:`, pinValidation.error);
         return; // No callback, solo log
       }
     }
 
     // Validar username (opcional)
     if (username && typeof username !== 'string') {
-      console.warn(`⚠️ Validación fallida en leave-game: username debe ser string`);
+      logger.warn(`⚠️ Validación fallida en leave-game: username debe ser string`);
       return;
     }
 
@@ -649,13 +650,13 @@ const handleLeaveGame = (socket, io) => {
             players: game.players
           });
 
-          console.log(`Jugador ${username} salió voluntariamente del juego ${pin}`);
+          logger.info(`Jugador ${username} salió voluntariamente del juego ${pin}`);
         } else {
-          console.log(`No se encontró jugador ${username} en el juego ${pin}`);
+          logger.debug(`No se encontró jugador ${username} en el juego ${pin}`);
         }
       }
     } catch (error) {
-      console.error("Error en leave-game:", error);
+      logger.error("Error en leave-game:", error);
     }
   });
 };

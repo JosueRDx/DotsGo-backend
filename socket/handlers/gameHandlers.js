@@ -103,7 +103,7 @@ const handleRejoinHost = (socket, io) => {
     // Validar PIN
     const pinValidation = validatePin(pin);
     if (!pinValidation.valid) {
-      console.warn(`⚠️ Validación fallida en rejoin-host:`, pinValidation.error);
+      logger.warn(`⚠️ Validación fallida en rejoin-host:`, pinValidation.error);
       return callback({
         success: false,
         error: pinValidation.error
@@ -119,7 +119,7 @@ const handleRejoinHost = (socket, io) => {
 
       // Verificar que el socket que se reconecta sea el host original
       if (game.hostId !== socket.id) {
-        console.warn(`Intento de reconexión no autorizada al juego ${pin} por socket ${socket.id}. Host real: ${game.hostId}`);
+        logger.warn(`Intento de reconexión no autorizada al juego ${pin} por socket ${socket.id}. Host real: ${game.hostId}`);
         return callback({ 
           success: false, 
           error: "No autorizado. Solo el host puede reconectarse." 
@@ -127,7 +127,7 @@ const handleRejoinHost = (socket, io) => {
       }
 
       socket.join(pin);
-      console.log(`🔄 Admin socket ${socket.id} se reconectó a sala ${pin} con ${game.players.length} jugadores`);
+      logger.info(`🔄 Admin socket ${socket.id} se reconectó a sala ${pin} con ${game.players.length} jugadores`);
 
       const players = game.players.map(player => ({
         id: player.id,
@@ -176,7 +176,7 @@ const handleStartGame = (socket, io) => {
     // Validar PIN
     const pinValidation = validatePin(pin);
     if (!pinValidation.valid) {
-      console.warn(`⚠️ Validación fallida en start-game:`, pinValidation.error);
+      logger.warn(`⚠️ Validación fallida en start-game:`, pinValidation.error);
       return callback({
         success: false,
         error: pinValidation.error
@@ -197,7 +197,7 @@ const handleStartGame = (socket, io) => {
       game.status = "playing";
       game.currentQuestion = 0;
       game.questionStartTime = Date.now();
-      game.gameStartedAt = new Date(); // NUEVO: Registrar cuándo empezó el juego
+      game.gameStartedAt = new Date();
       await game.save();
 
       // Emitir countdown antes de iniciar
@@ -229,7 +229,7 @@ const handleCreateTournament = (socket, io) => {
     // Validar PIN
     const pinValidation = validatePin(pin);
     if (!pinValidation.valid) {
-      console.warn(`⚠️ Validación fallida en create-tournament:`, pinValidation.error);
+      logger.warn(`⚠️ Validación fallida en create-tournament:`, pinValidation.error);
       return callback({
         success: false,
         error: pinValidation.error
@@ -257,7 +257,7 @@ const handleCreateTournament = (socket, io) => {
       // Emitir estado inicial del torneo
       io.to(pin).emit("tournament-state-update", tournament);
 
-      console.log(`🏆 Torneo creado para juego ${pin} con ${game.players.length} jugadores`);
+      logger.info(`🏆 Torneo creado para juego ${pin} con ${game.players.length} jugadores`);
       
       callback({ 
         success: true, 
@@ -265,7 +265,7 @@ const handleCreateTournament = (socket, io) => {
       });
 
     } catch (error) {
-      console.error("Error al crear torneo:", error);
+      logger.error("Error al crear torneo:", error);
       callback({ success: false, error: error.message });
     }
   });
@@ -281,7 +281,7 @@ const handleStartTournamentMatch = (socket, io) => {
     // Validar PIN
     const pinValidation = validatePin(pin);
     if (!pinValidation.valid) {
-      console.warn(`⚠️ Validación fallida en start-tournament-match:`, pinValidation.error);
+      logger.warn(`⚠️ Validación fallida en start-tournament-match:`, pinValidation.error);
       return callback({
         success: false,
         error: pinValidation.error
@@ -290,7 +290,7 @@ const handleStartTournamentMatch = (socket, io) => {
 
     // Validar matchId (debe ser un string no vacío)
     if (!matchId || typeof matchId !== 'string' || matchId.trim().length === 0) {
-      console.warn(`⚠️ Validación fallida en start-tournament-match: matchId inválido`);
+      logger.warn(`⚠️ Validación fallida en start-tournament-match: matchId inválido`);
       return callback({
         success: false,
         error: "El ID del match es requerido"
@@ -343,12 +343,12 @@ const handleStartTournamentMatch = (socket, io) => {
         });
       }, 3000);
 
-      console.log(`⚔️ Match iniciado: ${match.player1.username} vs ${match.player2.username}`);
+      logger.info(`⚔️ Match iniciado: ${match.player1.username} vs ${match.player2.username}`);
       
       callback({ success: true });
 
     } catch (error) {
-      console.error("Error al iniciar match del torneo:", error);
+      logger.error("Error al iniciar match del torneo:", error);
       callback({ success: false, error: error.message });
     }
   });
@@ -403,11 +403,11 @@ const handleTournamentMatchEnd = async (game, gameResult, io) => {
         io.to(game.pin).emit("tournament-state-update", updatedTournament);
       }
 
-      console.log(`✅ Match completado. Ganador: ${winner.username}`);
+      logger.info(`✅ Match completado. Ganador: ${winner.username}`);
     }
 
   } catch (error) {
-    console.error("Error al manejar fin de match del torneo:", error);
+    logger.error("Error al manejar fin de match del torneo:", error);
   }
 };
 
@@ -421,7 +421,7 @@ const handleKickPlayer = (socket, io) => {
     // Validar PIN
     const pinValidation = validatePin(pin);
     if (!pinValidation.valid) {
-      console.warn(`⚠️ Validación fallida en kick-player:`, pinValidation.error);
+      logger.warn(`⚠️ Validación fallida en kick-player:`, pinValidation.error);
       return callback({
         success: false,
         error: pinValidation.error
@@ -430,7 +430,7 @@ const handleKickPlayer = (socket, io) => {
 
     // Validar playerId (debe ser un string no vacío)
     if (!playerId || typeof playerId !== 'string' || playerId.trim().length === 0) {
-      console.warn(`⚠️ Validación fallida en kick-player: playerId inválido`);
+      logger.warn(`⚠️ Validación fallida en kick-player: playerId inválido`);
       return callback({
         success: false,
         error: "El ID del jugador es requerido"
@@ -486,7 +486,7 @@ const handleKickPlayer = (socket, io) => {
         players: game.players
       });
 
-      console.log(`Admin expulsó al jugador ${kickedPlayer.username} del juego ${pin}`);
+      logger.info(`Admin expulsó al jugador ${kickedPlayer.username} del juego ${pin}`);
       
       callback({ 
         success: true, 
@@ -495,7 +495,7 @@ const handleKickPlayer = (socket, io) => {
       });
 
     } catch (error) {
-      console.error("Error al expulsar jugador:", error);
+      logger.error("Error al expulsar jugador:", error);
       callback({ success: false, error: error.message });
     }
   });
