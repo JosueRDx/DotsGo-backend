@@ -6,7 +6,7 @@ const { getQuestionTimer, clearQuestionTimer } = require("../../utils/timer");
 const { initializePlayer, processPlayerAnswer, checkWinConditions } = require("../../services/gameModeService");
 const shuffleArray = require("../../utils/shuffle");
 const { checkRateLimit, clearSocketData } = require("../../utils/rateLimiter");
-const { validateJoinGameData, validateSubmitAnswerData } = require("../../utils/validation");
+const { validateJoinGameData, validateSubmitAnswerData, validatePin } = require("../../utils/validation");
 const logger = require("../../utils/logger");
 
 /**
