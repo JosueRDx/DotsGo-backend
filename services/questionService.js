@@ -66,6 +66,9 @@ const emitQuestion = async (game, questionIndex, io, endGameCallback) => {
           timeLimit: game.timeLimitPerQuestion / 1000,
           currentIndex: questionIndex + 1,
           totalQuestions: game.questions.length,
+          // NUEVO: Incluir información del modo de juego
+          gameMode: game.gameMode,
+          modeConfig: game.modeConfig
         });
 
         console.log(`📤 Jugador ${player.username} recibió pregunta (${eventName}): ${playerQuestion.title}`);

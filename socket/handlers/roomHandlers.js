@@ -102,11 +102,22 @@ const handleGetCurrentQuestion = (socket, io) => {
             currentIndex: game.currentQuestion + 1,
             totalQuestions: game.questions.length,
             gameMode: game.gameMode,
-            modeConfig: game.modeConfig
+            modeConfig: game.modeConfig,
+            // NUEVO: Incluir datos del jugador (vidas, posición, etc.)
+            playerData: {
+              lives: player.lives,
+              position: player.position,
+              isEliminated: player.isEliminated,
+              score: player.score || 0,
+              correctAnswers: player.correctAnswers || 0
+            }
           });
         }
       }
 
+      // Buscar al jugador para incluir sus datos
+      const player = game.players.find(p => p.id === socket.id);
+      
       return callback({
         success: true,
         question: null,
@@ -114,7 +125,15 @@ const handleGetCurrentQuestion = (socket, io) => {
         currentIndex: 0,
         totalQuestions: game.questions.length,
         gameMode: game.gameMode,
-        modeConfig: game.modeConfig
+        modeConfig: game.modeConfig,
+        // NUEVO: Incluir datos del jugador si existe
+        playerData: player ? {
+          lives: player.lives,
+          position: player.position,
+          isEliminated: player.isEliminated,
+          score: player.score || 0,
+          correctAnswers: player.correctAnswers || 0
+        } : null
       });
     } catch (error) {
       callback({
@@ -161,7 +180,15 @@ const handleGetCurrentQuestion = (socket, io) => {
         currentIndex: game.currentQuestion + 1,
         totalQuestions: game.questions.length,
         gameMode: game.gameMode,
-        modeConfig: game.modeConfig
+        modeConfig: game.modeConfig,
+        // NUEVO: Incluir datos del jugador
+        playerData: {
+          lives: player.lives,
+          position: player.position,
+          isEliminated: player.isEliminated,
+          score: player.score || 0,
+          correctAnswers: player.correctAnswers || 0
+        }
       });
 
     } catch (error) {
