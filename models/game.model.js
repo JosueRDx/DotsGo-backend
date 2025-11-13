@@ -130,7 +130,23 @@ const gameSchema = new mongoose.Schema({
     username: String,
     winType: String, // 'survival', 'race', 'points'
     winTime: Date
+  },
+  // Campos para control de duración máxima de juego
+  maxGameDuration: {
+    type: Number,
+    default: 7200000 // 2 horas en milisegundos
+  },
+  gameStartedAt: {
+    type: Date,
+    default: null
+  },
+  hostId: String,
+  gameName: {
+    type: String,
+    default: 'Juego DotsGo'
   }
+}, {
+  timestamps: true
 });
 
 // ===== ÍNDICES PARA OPTIMIZACIÓN DE CONSULTAS =====

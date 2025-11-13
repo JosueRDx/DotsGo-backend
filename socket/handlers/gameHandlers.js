@@ -15,6 +15,11 @@ const logger = require("../../utils/logger");
  */
 const handleCreateGame = (socket, io) => {
   socket.on("create-game", async (gameData, callback) => {
+    // Validar que callback es una función
+    if (typeof callback !== 'function') {
+      return;
+    }
+
     // Verificar rate limiting
     const rateCheck = checkRateLimit(socket.id, 'create-game');
     if (!rateCheck.allowed) {
@@ -90,6 +95,11 @@ const handleCreateGame = (socket, io) => {
  */
 const handleRejoinHost = (socket, io) => {
   socket.on("rejoin-host", async ({ pin }, callback) => {
+    // Validar que callback es una función
+    if (typeof callback !== 'function') {
+      return;
+    }
+
     // Validar PIN
     const pinValidation = validatePin(pin);
     if (!pinValidation.valid) {
@@ -148,6 +158,11 @@ const handleRejoinHost = (socket, io) => {
  */
 const handleStartGame = (socket, io) => {
   socket.on("start-game", async ({ pin }, callback) => {
+    // Validar que callback es una función
+    if (typeof callback !== 'function') {
+      return;
+    }
+
     // Verificar rate limiting
     const rateCheck = checkRateLimit(socket.id, 'start-game');
     if (!rateCheck.allowed) {
@@ -182,6 +197,7 @@ const handleStartGame = (socket, io) => {
       game.status = "playing";
       game.currentQuestion = 0;
       game.questionStartTime = Date.now();
+      game.gameStartedAt = new Date(); // NUEVO: Registrar cuándo empezó el juego
       await game.save();
 
       // Emitir countdown antes de iniciar

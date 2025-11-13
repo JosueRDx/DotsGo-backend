@@ -9,6 +9,11 @@ const logger = require("../../utils/logger");
  */
 const handleGetRoomPlayers = (socket, io) => {
   socket.on("get-room-players", async ({ pin }, callback) => {
+    // Validar que callback es una función
+    if (typeof callback !== 'function') {
+      return;
+    }
+
     // Validar PIN
     const pinValidation = validatePin(pin);
     if (!pinValidation.valid) {
@@ -59,6 +64,11 @@ const handleGetRoomPlayers = (socket, io) => {
  */
 const handleGetCurrentQuestion = (socket, io) => {
   socket.on("get-current-question", async ({ pin }, callback) => {
+    // Validar que callback es una función
+    if (typeof callback !== 'function') {
+      return;
+    }
+
     // Validar PIN
     const pinValidation = validatePin(pin);
     if (!pinValidation.valid) {

@@ -5,7 +5,7 @@ const { emitQuestion } = require("../../services/questionService");
 const { getQuestionTimer, clearQuestionTimer } = require("../../utils/timer");
 const { initializePlayer, processPlayerAnswer, checkWinConditions } = require("../../services/gameModeService");
 const shuffleArray = require("../../utils/shuffle");
-const { checkRateLimit } = require("../../utils/rateLimiter");
+const { checkRateLimit, clearSocketData } = require("../../utils/rateLimiter");
 const { validateJoinGameData, validateSubmitAnswerData } = require("../../utils/validation");
 
 /**
@@ -15,6 +15,11 @@ const { validateJoinGameData, validateSubmitAnswerData } = require("../../utils/
  */
 const handleJoinGame = (socket, io) => {
   socket.on("join-game", async (joinData, callback) => {
+    // Validar que callback es una función
+    if (typeof callback !== 'function') {
+      return;
+    }
+
     // Verificar rate limiting
     const rateCheck = checkRateLimit(socket.id, 'join-game');
     if (!rateCheck.allowed) {
@@ -48,6 +53,15 @@ const handleJoinGame = (socket, io) => {
 
       if (game.status === "finished") {
         return callback({ success: false, error: "El juego ya ha finalizado" });
+      }
+
+      // Verificar límite máximo de jugadores
+      const maxPlayersAllowed = game.modeConfig?.maxPlayers || 50;
+      if (game.players.length >= maxPlayersAllowed) {
+        return callback({ 
+          success: false, 
+          error: `El juego está lleno (${maxPlayersAllowed} jugadores máximo)` 
+        });
       }
 
       const totalQuestions = game.questions.length;
@@ -231,6 +245,11 @@ const saveWithRetry = async (saveFn, maxRetries = 3) => {
  */
 const handleSubmitAnswer = (socket, io) => {
   socket.on("submit-answer", async (answerData, callback) => {
+    // Validar que callback es una función
+    if (typeof callback !== 'function') {
+      return;
+    }
+
     // Verificar rate limiting
     const rateCheck = checkRateLimit(socket.id, 'submit-answer');
     if (!rateCheck.allowed) {
@@ -546,6 +565,9 @@ const handleSubmitAnswer = (socket, io) => {
  */
 const handleDisconnect = (socket, io) => {
   socket.on("disconnect", async (reason) => {
+    // Limpiar datos de rate limiting cuando socket se desconecta
+    clearSocketData(socket.id);
+
     try {
       const game = await Game.findOne({ "players.id": socket.id });
 
