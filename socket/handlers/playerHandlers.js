@@ -130,7 +130,20 @@ const handleJoinGame = (socket, io) => {
 
           logger.debug(`🔄 Jugador ${username} se unió tarde - Pregunta: ${playerQuestion.title}`);
         }
-        io.to(pin).emit("player-joined", {
+        // Emitir al jugador que se acaba de unir - incluye su propio socket
+        socket.emit("player-joined", {
+          players: game.players,
+          gameInfo: {
+            pin: game.pin,
+            questionsCount: totalQuestions,
+            maxPlayers: 50,
+            status: game.status,
+            timeLimitPerQuestion: game.timeLimitPerQuestion / 1000
+          }
+        });
+
+        // Notificar a todos los demás jugadores en la sala
+        socket.to(pin).emit("player-joined", {
           players: game.players,
           gameInfo: {
             pin: game.pin,
@@ -181,13 +194,14 @@ const handleJoinGame = (socket, io) => {
         await game.save();
         socket.join(pin);
 
-        // Debug: Verificar sockets en la sala
+        // Verificar sockets en la sala
         const socketsInRoom = await io.in(pin).allSockets();
         logger.debug(`🔍 Jugador ${username} se unió. Sockets en sala ${pin}:`, Array.from(socketsInRoom));
         logger.debug(`📊 Total jugadores en BD: ${game.players.length}`);
 
-        logger.debug(`📤 Emitiendo player-joined a sala ${pin} con ${game.players.length} jugadores`);
-        io.to(pin).emit("player-joined", {
+        // Emitir primero al jugador que se acaba de unir
+        logger.debug(`📤 Emitiendo player-joined directamente al jugador ${username}`);
+        socket.emit("player-joined", {
           players: game.players,
           gameInfo: {
             pin: game.pin,
@@ -198,7 +212,20 @@ const handleJoinGame = (socket, io) => {
           }
         });
 
-        logger.debug(`📤 Emitiendo players-updated a sala ${pin} con ${game.players.length} jugadores`);
+        // Luego notificar a todos los demás jugadores en la sala
+        logger.debug(`📤 Emitiendo player-joined a otros jugadores en sala ${pin}`);
+        socket.to(pin).emit("player-joined", {
+          players: game.players,
+          gameInfo: {
+            pin: game.pin,
+            questionsCount: game.questions.length,
+            maxPlayers: 50,
+            status: game.status,
+            timeLimitPerQuestion: game.timeLimitPerQuestion / 1000
+          }
+        });
+
+        logger.debug(`📤 Emitiendo players-updated a toda la sala ${pin} con ${game.players.length} jugadores`);
         io.to(pin).emit("players-updated", {
           players: game.players
         });
