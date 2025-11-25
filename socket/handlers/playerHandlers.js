@@ -519,65 +519,81 @@ const handleSubmitAnswer = (socket, io) => {
 
       // Si todos han respondido su pregunta actual, forzar el timeout para mostrar respuestas correctas
       if (haveAllPlayersAnswered(result.game)) {
-        logger.debug("🎯 Todos los jugadores han respondido, forzando timeout para mostrar respuestas correctas");
+        logger.info(`🎯 Todos los jugadores respondieron pregunta ${result.game.currentQuestion + 1}/${result.game.questions.length}, forzando avance`);
         
-        // Obtener el timer actual y ejecutarlo inmediatamente
+        // Obtener el timer actual y cancelarlo
         const currentTimer = getQuestionTimer(pin);
         if (currentTimer) {
+          logger.debug(`⏰ Cancelando timer automático para forzar avance inmediato`);
           clearTimeout(currentTimer);
           clearQuestionTimer(pin);
-          
-          // Ejecutar el proceso de timeout inmediatamente (que incluye showCorrectAnswers)
-          setTimeout(async () => {
-            const updatedGame = await Game.findById(result.game._id).populate("questions");
-            if (updatedGame && updatedGame.status === "playing") {
-              const { processTimeouts } = require("../../services/gameService");
-              const { showCorrectAnswers } = require("../../services/questionService");
-              
-              await processTimeouts(updatedGame, io);
-              
-              // Mostrar respuestas correctas
-              await showCorrectAnswers(updatedGame, updatedGame.currentQuestion, io);
-              
-              // Actualizar ranking
-              const refreshedGame = await Game.findById(updatedGame._id);
-              io.to(refreshedGame.pin).emit("ranking-updated", {
-                players: refreshedGame.players
-                  .map(p => ({
-                    id: p.id,
-                    username: p.username,
-                    score: p.score || 0,
-                    correctAnswers: p.correctAnswers || 0,
-                    totalResponseTime: p.totalResponseTime || 0,
-                    character: p.character
-                  }))
-                  .sort((a, b) => {
-                    if (b.score !== a.score) return b.score - a.score;
-                    if (b.correctAnswers !== a.correctAnswers) return b.correctAnswers - a.correctAnswers;
-                    return a.totalResponseTime - b.totalResponseTime;
-                  })
-              });
-              
-              // Esperar antes de continuar con la siguiente pregunta
-              setTimeout(async () => {
-                const nextGame = await Game.findByIdAndUpdate(
-                  updatedGame._id,
-                  { $inc: { currentQuestion: 1 }, $set: { questionStartTime: Date.now() } },
-                  { new: true }
-                ).populate("questions");
-                
-                // Verificar si aún hay preguntas por hacer
-                if (nextGame.currentQuestion < nextGame.questions.length) {
-                  logger.debug(`🔄 Continuando con pregunta ${nextGame.currentQuestion + 1} de ${nextGame.questions.length}`);
-                  emitQuestion(nextGame, nextGame.currentQuestion, io, endGame);
-                } else {
-                  logger.debug(`🏁 Todas las preguntas completadas, terminando juego`);
-                  endGame(nextGame, nextGame.pin, io);
-                }
-              }, 5000); // 5 segundos para mostrar las respuestas correctas
-            }
-          }, 1000); // 1 segundo de delay para que se procesen todas las respuestas
+        } else {
+          logger.warn(`⚠️ No se encontró timer activo para sala ${pin}, el avance puede no funcionar correctamente`);
         }
+        
+        // Ejecutar el proceso de timeout inmediatamente
+        setTimeout(async () => {
+          const updatedGame = await Game.findById(result.game._id).populate("questions");
+          if (updatedGame && updatedGame.status === "playing") {
+            const { processTimeouts } = require("../../services/gameService");
+            const { showCorrectAnswers } = require("../../services/questionService");
+            
+            await processTimeouts(updatedGame, io);
+            
+            // Mostrar respuestas correctas
+            await showCorrectAnswers(updatedGame, updatedGame.currentQuestion, io);
+            
+            // Actualizar ranking
+            const refreshedGame = await Game.findById(updatedGame._id);
+            io.to(refreshedGame.pin).emit("ranking-updated", {
+              players: refreshedGame.players
+                .map(p => ({
+                  id: p.id,
+                  username: p.username,
+                  score: p.score || 0,
+                  correctAnswers: p.correctAnswers || 0,
+                  totalResponseTime: p.totalResponseTime || 0,
+                  character: p.character,
+                  lives: p.lives,
+                  position: p.position,
+                  isEliminated: p.isEliminated
+                }))
+                .sort((a, b) => {
+                  if (b.score !== a.score) return b.score - a.score;
+                  if (b.correctAnswers !== a.correctAnswers) return b.correctAnswers - a.correctAnswers;
+                  return a.totalResponseTime - b.totalResponseTime;
+                }),
+              gameMode: refreshedGame.gameMode,
+              modeConfig: refreshedGame.modeConfig
+            });
+            
+            // Esperar antes de continuar con la siguiente pregunta
+            setTimeout(async () => {
+              logger.debug(`⏱️ Avance forzado: Incrementando pregunta después de mostrar respuestas correctas`);
+              const nextGame = await Game.findByIdAndUpdate(
+                updatedGame._id,
+                { $inc: { currentQuestion: 1 }, $set: { questionStartTime: Date.now() } },
+                { new: true }
+              ).populate("questions");
+              
+              if (!nextGame) {
+                logger.error(`❌ Error: No se pudo obtener el juego actualizado para PIN ${pin}`);
+                return;
+              }
+              
+              // Verificar si aún hay preguntas por hacer
+              if (nextGame.currentQuestion < nextGame.questions.length) {
+                logger.info(`🔄 Avance forzado: Emitiendo pregunta ${nextGame.currentQuestion + 1} de ${nextGame.questions.length}`);
+                emitQuestion(nextGame, nextGame.currentQuestion, io, endGame);
+              } else {
+                logger.info(`🏁 Avance forzado: Todas las preguntas completadas (${nextGame.currentQuestion}/${nextGame.questions.length}), terminando juego`);
+                endGame(nextGame, nextGame.pin, io);
+              }
+            }, 5000);
+          } else {
+            logger.warn(`⚠️ Juego no encontrado o no está en estado 'playing' al intentar avanzar forzadamente`);
+          }
+        }, 1000);
       }
     } catch (error) {
       logger.error("Error en submit-answer:", error);

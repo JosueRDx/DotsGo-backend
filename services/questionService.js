@@ -108,6 +108,8 @@ const emitQuestion = async (game, questionIndex, io, endGameCallback) => {
 
       // Esperar un poco antes de continuar con la siguiente pregunta
       setTimeout(async () => {
+        deleteQuestionTimer(game.pin);
+        
         const nextGame = await Game.findByIdAndUpdate(
           updatedGame._id,
           { $inc: { currentQuestion: 1 }, $set: { questionStartTime: Date.now() } },
@@ -116,18 +118,18 @@ const emitQuestion = async (game, questionIndex, io, endGameCallback) => {
         
         // Verificar si aún hay preguntas por hacer
         if (nextGame.currentQuestion < nextGame.questions.length) {
-          logger.debug(`🔄 Continuando con pregunta ${nextGame.currentQuestion + 1} de ${nextGame.questions.length}`);
+          logger.debug(`🔄 Timer automático: Continuando con pregunta ${nextGame.currentQuestion + 1} de ${nextGame.questions.length}`);
           emitQuestion(nextGame, nextGame.currentQuestion, io, endGameCallback);
         } else {
-          logger.end(`🏁 Todas las preguntas completadas, terminando juego`);
+          logger.info(`🏁 Timer automático: Todas las preguntas completadas, terminando juego`);
           endGameCallback(nextGame, nextGame.pin, io);
         }
       }, 5000); // 5 segundos para mostrar las respuestas correctas
     }
-    deleteQuestionTimer(game.pin);
   }, game.timeLimitPerQuestion);
 
   setQuestionTimer(game.pin, timer);
+  logger.debug(`⏰ Timer registrado para sala ${game.pin} (pregunta ${questionIndex + 1}/${game.questions.length})`);
 };
 
 /**
