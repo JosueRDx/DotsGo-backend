@@ -72,6 +72,26 @@ const handleJoinGame = (socket, io) => {
         totalQuestions
       };
 
+      // Verificar si el jugador ya existe en el juego
+      const existingPlayerBySocketId = game.players.find(p => p.id === socket.id);
+      const existingPlayerByUsername = game.players.find(p => p.username === username);
+
+      if (existingPlayerBySocketId) {
+        logger.warn(`⚠️ Intento de unión duplicada: socket ${socket.id} ya está en el juego ${pin}`);
+        return callback({
+          success: false,
+          error: "Ya estás registrado en este juego"
+        });
+      }
+
+      if (existingPlayerByUsername) {
+        logger.warn(`⚠️ Intento de unión con nombre duplicado: '${username}' ya existe en el juego ${pin}`);
+        return callback({
+          success: false,
+          error: "Ya existe un jugador con ese nombre en este juego"
+        });
+      }
+
 
       if (game.status === "playing") {
         // Crear orden aleatorio para jugador que se une tarde
@@ -160,6 +180,26 @@ const handleJoinGame = (socket, io) => {
       }
 
       if (game.status === "waiting") {
+        // Verificar si el jugador ya existe
+        const existingPlayerBySocketId = game.players.find(p => p.id === socket.id);
+        const existingPlayerByUsername = game.players.find(p => p.username === username);
+
+        if (existingPlayerBySocketId) {
+          logger.warn(`⚠️ Intento de unión duplicada en waiting: socket ${socket.id} ya está en el juego ${pin}`);
+          return callback({
+            success: false,
+            error: "Ya estás registrado en este juego"
+          });
+        }
+
+        if (existingPlayerByUsername) {
+          logger.warn(`⚠️ Intento de unión con nombre duplicado en waiting: '${username}' ya existe en el juego ${pin}`);
+          return callback({
+            success: false,
+            error: "Ya existe un jugador con ese nombre en este juego"
+          });
+        }
+
         // Crear orden aleatorio de preguntas para este jugador
         const shuffledQuestions = shuffleArray(game.questions.map(q => q._id));
 
